@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db"); // Importa o pool de conexões
-const crypto = require("crypto");
 const {
     authenticateToken,
     authorizeRoles,
@@ -136,8 +135,8 @@ router.put(
     "/:id",
     authenticateToken,
     authorizeRoles("admin"),
-    usuarioValidationRules,
-    usuarioValidationErrors,
+    userValidationRules,
+    userValidationErrors,
     async (req, res, next) => {
         try {
             const { id } = req.params;
