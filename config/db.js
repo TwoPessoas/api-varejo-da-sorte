@@ -5,6 +5,7 @@ const { Pool } = require('pg');
 // O 'Pool' do pg reconhece essa variável de ambiente automaticamente.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    
     // Em produção, o Render pode exigir uma conexão SSL.
     // Esta configuração é a mais comum para garantir que funcione.
     ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,

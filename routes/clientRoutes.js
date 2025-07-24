@@ -33,7 +33,7 @@ router.get(
                 cliente = rows[0];
             } else {
                 // 2b. Se NÃO encontrou, cria um novo cliente (pré-registro)
-                const sqlInsert = 'INSERT INTO clients (cpf, isPreRegister, createdAt, updatedAt) VALUES ($1, $2, NOW(), NOW()) RETURNING *';
+                const sqlInsert = 'INSERT INTO clients (cpf, isPreRegister) VALUES ($1, $2) RETURNING *';
                 const result = await pool.execute(sqlInsert, [cpfParam, true]);
 
                 cliente = result.rows[0];
@@ -76,9 +76,9 @@ router.post(
             // Usamos a função NOW() do PostgreSQL para garantir o timestamp do banco de dados,
             // que é a prática mais robusta.
             const sql = `INSERT INTO clientes 
-                            (isPreRegister, name, cpf, birthday, cel, email, token, createdAt, updatedAt)
+                            (isPreRegister, name, cpf, birthday, cel, email, token)
                          VALUES 
-                            ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()) 
+                            ($1, $2, $3, $4, $5, $6, $7) 
                          RETURNING *`;
             
             // 4. ADICIONAR O TOKEN GERADO AOS PARÂMETROS

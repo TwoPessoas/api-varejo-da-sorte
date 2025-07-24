@@ -7,6 +7,7 @@ const cookieParser = require("cookie-parser");
 // Import Routes
 const authRoutes = require("./routes/authRoutes");
 const clientRoutes = require("./routes/clientRoutes"); 
+const userRoutes = require("./routes/userRoutes"); 
 const protectedRoutes = require("./routes/protectedRoutes");
 
 // Import Middleware
@@ -56,8 +57,8 @@ app.use(express.urlencoded({ extended: true }));
 // Public routes (authentication, registration)
 app.use("/api/auth", authRoutes);
 
-// Rotas de Clientes (com suas próprias regras de proteção)
 app.use("/api/clients", clientRoutes);
+app.use("/api/users", userRoutes);
 
 // Protected routes (require JWT authentication)
 app.use("/api/protected", authenticateToken, protectedRoutes);
