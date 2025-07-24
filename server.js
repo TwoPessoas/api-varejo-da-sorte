@@ -2,10 +2,11 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const cookieParser = "cookie-parser";
+const cookieParser = require("cookie-parser");
 
 // Import Routes
 const authRoutes = require("./routes/authRoutes");
+const clientRoutes = require("./routes/clientRoutes"); 
 const protectedRoutes = require("./routes/protectedRoutes");
 
 // Import Middleware
@@ -54,6 +55,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Public routes (authentication, registration)
 app.use("/api/auth", authRoutes);
+
+// Rotas de Clientes (com suas próprias regras de proteção)
+app.use("/api/clients", clientRoutes);
 
 // Protected routes (require JWT authentication)
 app.use("/api/protected", authenticateToken, protectedRoutes);
