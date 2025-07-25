@@ -8,10 +8,14 @@ const {
 } = require("../middleware/authMiddleware");
 const { 
     clientValidationRules,
-    findByCpfRules,
     clientValidationErrors 
 } = require("../validators/clienteValidador");
-const { clientMaskInfo } = require("../utils/maskInfo");
+const { logActivity } = require('../utils/logger');
+
+// Protege todas as rotas para serem acessíveis apenas por 'admin'
+router.use(authenticateToken, authorizeRoles("admin"));
+
+/*const { clientMaskInfo } = require("../utils/maskInfo");
 
 // Rotas Públicas (não requerem autenticação)
 // Esta rota deve vir ANTES das rotas com /:id para evitar conflitos de matching
@@ -52,14 +56,12 @@ router.get(
             next(error);
         }
     }
-);
+);*/
 
 // Rota para CRIAR um novo client (CREATE)
 // Apenas 'admin' pode criar.
 router.post(
     "/",
-    authenticateToken,
-    authorizeRoles("admin"),
     clientValidationRules,// Aplica as regras de validação
     clientValidationErrors,// Trata os erros de validação
     async (req, res, next) => {
@@ -95,6 +97,15 @@ router.post(
 
             const result = await pool.query(sql, params);
 
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'CREATE_CLIENT',
+                { type: 'clients', id: result.rows[0].id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(201).json({
                 status: "success",
                 message: "Cliente criado com sucesso.",
@@ -110,8 +121,6 @@ router.post(
 // Apenas 'admin' pode ler.
 router.get(
     "/",
-    authenticateToken,
-    authorizeRoles("admin"),
     async (req, res, next) => {
         try {
             const {rows} = await pool.query('SELECT * FROM clients ORDER BY created_at DESC');
@@ -126,8 +135,6 @@ router.get(
 // Apenas 'admin' podem ler.
 router.get(
     "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
     async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -146,8 +153,6 @@ router.get(
 // Apenas 'admin' pode atualizar.
 router.put(
     "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
     clientValidationRules,
     clientValidationErrors,
     async (req, res, next) => {
@@ -169,6 +174,15 @@ router.put(
                 return res.status(404).json({ status: "error", message: "Cliente não encontrado." });
             }
 
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'UPDATE_CLIENT',
+                { type: 'clients', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(200).json({ status: "success", message: "Cliente atualizado com sucesso.", data: result.rows[0] });
         } catch (error) {
             next(error);
@@ -180,8 +194,6 @@ router.put(
 // Apenas 'admin' pode deletar.
 router.delete(
     "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
      async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -190,6 +202,16 @@ router.delete(
             if (result.rowCount === 0) {
                 return res.status(404).json({ status: "error", message: "Cliente não encontrado." });
             }
+
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'DELETE_CLIENT',
+                { type: 'clients', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(204).send();
         } catch (error) {
             next(error);

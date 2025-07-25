@@ -11,6 +11,7 @@ const {
     invoiceValidationRules,
     invoiceValidationErrors 
 } = require("../validators/invoiceValidador");
+const { logActivity } = require("../utils/logger");
 
 
 // Proteger todas as rotas de invoice para serem acessíveis apenas por 'admin'
@@ -46,6 +47,15 @@ router.post(
             const params = [fiscal_code, client_id, invoce_value];            
             
             const result = await pool.query(sql, params);
+
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'CREATE_INVOICE',
+                { type: 'invoices', id: result.rows[0].id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
 
             res.status(201).json({ status: "success", data: result.rows[0] });
         } catch (error) {
@@ -133,6 +143,15 @@ router.put(
                 return res.status(404).json({ status: "error", message: "Invoice não encontrada." });
             }
 
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'UPDATE_INVOICE',
+                { type: 'invoices', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(200).json({ status: "success", data: result.rows[0] });
         } catch (error) {
             next(error);
@@ -153,6 +172,16 @@ router.delete(
             if (result.rowCount === 0) {
                 return res.status(404).json({ status: "error", message: "Invoice não encontrada." });
             }
+
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'DELETE_INVOICE',
+                { type: 'invoices', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(204).send();
         } catch (error) {
             next(error);

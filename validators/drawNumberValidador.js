@@ -1,0 +1,51 @@
+// validadores/drawNumberValidador.js
+
+const { body, validationResult } = require("express-validator");
+const pool = require("../config/db");
+
+const drawNumberValidationRules = [
+    body("invoice_id")
+        .notEmpty().withMessage("O ID da invoice (invoice_id) é obrigatório.")
+        .isInt({ gt: 0 }).withMessage("O ID da invoice deve ser um inteiro positivo.")
+        .custom(async (value) => {
+            // Validação customizada para garantir que a invoice existe
+            const invoice = await pool.query("SELECT id FROM invoices WHERE id = $1", [value]);
+            if (invoice.rows.length === 0) {
+                throw new Error("A invoice com o ID fornecido não existe.");
+            }
+            return true;
+        }),
+
+    body("number")
+        .notEmpty().withMessage("O número (number) é obrigatório.")
+        .isInt().withMessage("O número deve ser um inteiro."),
+
+    body("active")
+        .optional()
+        .isBoolean().withMessage("O campo active deve ser um valor booleano."),
+
+    body("winner_at")
+        .optional({ nullable: true })
+        .isISO8601().toDate().withMessage("winner_at deve ser uma data válida no formato ISO8601."),
+
+    body("email_sended_at")
+        .optional({ nullable: true })
+        .isISO8601().toDate().withMessage("email_sended_at deve ser uma data válida no formato ISO8601."),
+];
+
+const drawNumberValidationErrors = (req, res, next) => {
+    const erros = validationResult(req);
+    if (!erros.isEmpty()) {
+        return res.status(400).json({
+            status: "error",
+            message: "Dados inválidos.",
+            erros: erros.array(),
+        });
+    }
+    next();
+};
+
+module.exports = {
+    drawNumberValidationRules,
+    drawNumberValidationErrors,
+};

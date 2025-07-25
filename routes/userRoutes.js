@@ -10,14 +10,16 @@ const {
     userValidationRules, 
     userValidationErrors 
 } = require("../validators/userValidador");
+const { logActivity } = require("../utils/logger");
 
+
+// Protege todas as rotas para serem acessíveis apenas por 'admin'
+router.use(authenticateToken, authorizeRoles("admin"));
 
 // Rota para CRIAR um novo usuario (CREATE)
 // Apenas 'admin' pode criar.
 router.post(
     "/",
-    authenticateToken,
-    authorizeRoles("admin"),
     userValidationRules,// Aplica as regras de validação
     userValidationErrors,// Trata os erros de validação
     async (req, res, next) => {
@@ -75,6 +77,15 @@ router.post(
             // 7. Se tudo correu bem, confirma a transação
             await repository.query("COMMIT");
 
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'CREATE_USER',
+                { type: 'users', id: result.rows[0].id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(201).json({
                 status: "success",
                 message: "Usuário registrado com sucesso. Por favor, faça o login.",
@@ -98,8 +109,6 @@ router.post(
 // Apenas 'admin' pode ler.
 router.get(
     "/",
-    authenticateToken,
-    authorizeRoles("admin"),
     async (req, res, next) => {
         try {
             const {rows} = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
@@ -114,8 +123,6 @@ router.get(
 // Apenas 'admin' podem ler.
 router.get(
     "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
     async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -157,6 +164,15 @@ router.put(
                 return res.status(404).json({ status: "error", message: "usuarioe não encontrado." });
             }
 
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'UPDATE_USER',
+                { type: 'users', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(200).json({ status: "success", message: "usuarioe atualizado com sucesso.", data: result.rows[0] });
         } catch (error) {
             next(error);
@@ -168,8 +184,6 @@ router.put(
 // Apenas 'admin' pode deletar.
 router.delete(
     "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
      async (req, res, next) => {
         try {
             const { id } = req.params;
@@ -178,6 +192,16 @@ router.delete(
             if (result.rowCount === 0) {
                 return res.status(404).json({ status: "error", message: "Usuário não encontrado." });
             }
+
+            // --- LOG DE AUDITORIA ---
+            await logActivity(
+                req.user.id, // ID do usuário logado, vindo do token JWT
+                'DELETE_USER',
+                { type: 'users', id },
+                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
+            );
+            // --- FIM DO LOG ---
+
             res.status(204).send();
         } catch (error) {
             next(error);
