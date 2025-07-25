@@ -24,7 +24,7 @@ router.get(
             const cpfParam = req.params.cpf;
 
             // 1. Tenta encontrar o cliente pelo CPF
-            const [rows] = await pool.execute('SELECT * FROM clientes WHERE cpf = $1', [cpfParam]);
+            const [rows] = await pool.query('SELECT * FROM clients WHERE cpf = $1', [cpfParam]);
             
             let cliente;
 
@@ -34,7 +34,7 @@ router.get(
             } else {
                 // 2b. Se NÃO encontrou, cria um novo cliente (pré-registro)
                 const sqlInsert = 'INSERT INTO clients (cpf, isPreRegister) VALUES ($1, $2) RETURNING *';
-                const result = await pool.execute(sqlInsert, [cpfParam, true]);
+                const result = await pool.query(sqlInsert, [cpfParam, true]);
 
                 cliente = result.rows[0];
             }
@@ -64,19 +64,20 @@ router.post(
     clientValidationErrors,// Trata os erros de validação
     async (req, res, next) => {
         try {
+            
             const { isPreRegister, name, cpf, birthday, cel, email } = req.body;
 
             // 2. GERAR O TOKEN SEGURO
             // crypto.randomBytes(32) gera 32 bytes de dados aleatórios.
             // .toString('hex') converte esses bytes para uma string hexadecimal de 64 caracteres.
-            const tokenGerado = crypto.randomBytes(32).toString("hex");
+            const newToken = crypto.randomBytes(32).toString("hex");
 
             // 3. SQL
             // Incluímos as colunas `token`, `createdAt` e `updatedAt`.
             // Usamos a função NOW() do PostgreSQL para garantir o timestamp do banco de dados,
             // que é a prática mais robusta.
-            const sql = `INSERT INTO clientes 
-                            (isPreRegister, name, cpf, birthday, cel, email, token)
+            const sql = `INSERT INTO clients 
+                            (is_pre_register, name, cpf, birthday, cel, email, token)
                          VALUES 
                             ($1, $2, $3, $4, $5, $6, $7) 
                          RETURNING *`;
@@ -89,7 +90,7 @@ router.post(
                 birthday,
                 cel,
                 email,
-                tokenGerado,
+                newToken,
             ];
 
             const result = await pool.query(sql, params);
@@ -113,7 +114,7 @@ router.get(
     authorizeRoles("admin"),
     async (req, res, next) => {
         try {
-            const [rows] = await pool.execute('SELECT * FROM clientes');
+            const {rows} = await pool.query('SELECT * FROM clients ORDER BY created_at DESC');
             res.status(200).json({ status: "success", data: rows });
         } catch (error) {
             next(error);
@@ -130,7 +131,7 @@ router.get(
     async (req, res, next) => {
         try {
             const { id } = req.params;
-            const [rows] = await pool.execute('SELECT * FROM clientes WHERE id = ?', [id]);
+            const {rows} = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
             if (rows.length === 0) {
                 return res.status(404).json({ status: "error", message: "Cliente não encontrado." });
             }
@@ -152,14 +153,15 @@ router.put(
     async (req, res, next) => {
         try {
             const { id } = req.params;
-            const { isPreRegister, name, cpf, birthday, cel, email, token } = req.body;
+            const { name, cpf, birthday, cel, email } = req.body;
             
             // MUDANÇA: A cláusula `updatedAt` é definida explicitamente
-            const sql = `UPDATE clientes SET 
-                            isPreRegister = $1, name = $2, cpf = $3, birthday = $4, 
-                            cel = $5, email = $6, token = $7, updatedAt = NOW()
-                         WHERE id = $8 RETURNING *`;
-            const params = [isPreRegister, name, cpf, birthday, cel, email, token, id];
+            const sql = `UPDATE clients SET 
+                            is_pre_register = $1, name = $2, cpf = $3, birthday = $4, 
+                            cel = $5, email = $6, updated_at = NOW()
+                         WHERE id = $7
+                         RETURNING *`;
+            const params = [false, name, cpf, birthday, cel, email, id];
 
             const result = await pool.query(sql, params);
             // MUDANÇA: de affectedRows para rowCount
@@ -183,7 +185,7 @@ router.delete(
      async (req, res, next) => {
         try {
             const { id } = req.params;
-            const result = await pool.query('DELETE FROM clientes WHERE id = $1', [id]);
+            const result = await pool.query('DELETE FROM clients WHERE id = $1', [id]);
             // MUDANÇA: de affectedRows para rowCount
             if (result.rowCount === 0) {
                 return res.status(404).json({ status: "error", message: "Cliente não encontrado." });

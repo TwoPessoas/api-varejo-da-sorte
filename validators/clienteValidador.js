@@ -42,18 +42,17 @@ const clientValidationRules = [
         .custom(async (value, { req }) => {
             if (!isValidCPF(value)) throw new Error("O CPF fornecido é inválido.");
             
-            const cpfOnlyDigits = value.replace(/[^\d]+/g, "");
             const idClient = req.params.id; // Pega o ID da rota, se existir (para o caso de UPDATE)
 
-            let sql = 'SELECT id FROM clientes WHERE cpf = ?';
-            const params = [cpfOnlyDigits];
+            let sql = `SELECT id FROM clients WHERE cpf = $1`;
+            const params = [value];
 
             if (idClient) {
-                sql += ' AND id != ?';
+                sql += ' AND id != $2';
                 params.push(idClient);
             }
             
-            const [rows] = await pool.execute(sql, params);
+            const {rows} = await pool.query(sql, params);
             if (rows.length > 0) throw new Error("Este CPF já está em uso.");
             
             return true;
@@ -89,15 +88,15 @@ const clientValidationRules = [
             if (!value) return true; // Se for opcional e não veio, passa
             const idCliente = req.params.id;
             
-            let sql = 'SELECT id FROM clientes WHERE email = ?';
+            let sql = 'SELECT id FROM clients WHERE email = $1';
             const params = [value];
 
             if (idCliente) {
-                sql += ' AND id != ?';
+                sql += ' AND id != $2';
                 params.push(idCliente);
             }
 
-            const [rows] = await pool.execute(sql, params);
+            const {rows} = await pool.query(sql, params);
             if (rows.length > 0) throw new Error("Este email já está em uso.");
 
             return true;
@@ -110,15 +109,15 @@ const clientValidationRules = [
             if (!value) return true;
             const idCliente = req.params.id;
 
-            let sql = 'SELECT id FROM clientes WHERE cel = ?';
+            let sql = 'SELECT id FROM clients WHERE cel = $1';
             const params = [value];
 
             if (idCliente) {
-                sql += ' AND id != ?';
+                sql += ' AND id != $2';
                 params.push(idCliente);
             }
 
-            const [rows] = await pool.execute(sql, params);
+            const {rows} = await pool.query(sql, params);
             if (rows.length > 0) throw new Error("Este celular já está em uso.");
 
             return true;

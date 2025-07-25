@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const bcrypt = require("bcryptjs");
 const pool = require("../config/db"); // Importa o pool de conexões
 const {
     authenticateToken,
@@ -21,15 +22,15 @@ router.post(
     userValidationErrors,// Trata os erros de validação
     async (req, res, next) => {
         // Para garantir a consistência dos dados, usaremos uma transação
-        const db = await pool.connect();
+        const repository = await pool.connect();
 
         try {
-            await db.query("BEGIN"); // Inicia a transação
+            await repository.query("BEGIN"); // Inicia a transação
 
             const { username, password, email, role } = req.body;
 
             // 1. Verificar se o usuário já existe
-            const userExists = await db.query(
+            const userExists = await repository.query(
                 "SELECT id FROM users WHERE email = $1 OR username = $2",
                 [email, username]
             );
@@ -50,7 +51,7 @@ router.post(
                 INSERT INTO users (username, email, password) 
                 VALUES ($1, $2, $3) 
                 RETURNING id`;
-            const newUserResult = await db.query(newUserQuery, [
+            const newUserResult = await repository.query(newUserQuery, [
                 username,
                 email,
                 hashedPassword,
@@ -58,7 +59,7 @@ router.post(
             const newUserId = newUserResult.rows[0].id;
 
             // 4. Obter o ID do papel 'user'
-            const roleResult = await db.query("SELECT id FROM roles WHERE nome = $1", [role || 'user']);
+            const roleResult = await repository.query("SELECT id FROM roles WHERE name = $1", [role || 'user']);
             if (roleResult.rows.length === 0) {
                 // Isso seria um erro de configuração do sistema
                 throw new Error("O grupo de permissão não foi encontrado.");
@@ -69,10 +70,10 @@ router.post(
             const userRoleQuery = `
                 INSERT INTO user_roles (user_id, role_id) 
                 VALUES ($1, $2)`;
-            await db.query(userRoleQuery, [newUserId, userRoleId]);
+            await repository.query(userRoleQuery, [newUserId, userRoleId]);
 
             // 7. Se tudo correu bem, confirma a transação
-            await db.query("COMMIT");
+            await repository.query("COMMIT");
 
             res.status(201).json({
                 status: "success",
@@ -84,11 +85,11 @@ router.post(
             });
         } catch (error) {
             // 8. Se algo deu errado, desfaz todas as operações da transação
-            await db.query("ROLLBACK");
+            await repository.query("ROLLBACK");
             next(error); // Passa o erro para o handler central
         } finally {
             // 9. Libera o usuarioe de volta para o pool, independentemente do resultado
-            db.release();
+            repository.release();
         }
     }
 );
@@ -101,7 +102,7 @@ router.get(
     authorizeRoles("admin"),
     async (req, res, next) => {
         try {
-            const [rows] = await pool.execute('SELECT * FROM usuarioes');
+            const {rows} = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
             res.status(200).json({ status: "success", data: rows });
         } catch (error) {
             next(error);
@@ -118,9 +119,9 @@ router.get(
     async (req, res, next) => {
         try {
             const { id } = req.params;
-            const [rows] = await pool.execute('SELECT * FROM usuarioes WHERE id = ?', [id]);
+            const {rows} = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
             if (rows.length === 0) {
-                return res.status(404).json({ status: "error", message: "usuarioe não encontrado." });
+                return res.status(404).json({ status: "error", message: "Usuário não encontrado." });
             }
             res.status(200).json({ status: "success", data: rows[0] });
         } catch (error) {
@@ -129,6 +130,7 @@ router.get(
     }
 );
 
+/*
 // Rota para ATUALIZAR um usuario (UPDATE)
 // Apenas 'admin' pode atualizar.
 router.put(
@@ -160,7 +162,7 @@ router.put(
             next(error);
         }
     }
-);
+);*/
 
 // Rota para DELETAR um usuario (DELETE)
 // Apenas 'admin' pode deletar.
@@ -171,10 +173,10 @@ router.delete(
      async (req, res, next) => {
         try {
             const { id } = req.params;
-            const result = await pool.query('DELETE FROM usuarioes WHERE id = $1', [id]);
+            const result = await pool.query('DELETE FROM users WHERE id = $1', [id]);
             // MUDANÇA: de affectedRows para rowCount
             if (result.rowCount === 0) {
-                return res.status(404).json({ status: "error", message: "usuarioe não encontrado." });
+                return res.status(404).json({ status: "error", message: "Usuário não encontrado." });
             }
             res.status(204).send();
         } catch (error) {

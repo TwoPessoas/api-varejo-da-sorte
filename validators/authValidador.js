@@ -22,11 +22,9 @@ const authValidationRules = [
 ];
 
 const loginValidationRules = [
-    body("username")
-        .notEmpty()
-        .withMessage("O campo 'username' é obrigatório.")
-        .isLength({ min: 3 })
-        .withMessage("O campo 'username' deve ter pelo menos 3 caracteres."),
+    body("email")
+        .optional({ checkFalsy: true })
+        .isEmail().withMessage("O email fornecido é inválido."),
 
     body("password")
         .notEmpty()
