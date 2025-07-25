@@ -8,6 +8,7 @@ const cookieParser = require("cookie-parser");
 const authRoutes = require("./routes/authRoutes");
 const clientRoutes = require("./routes/clientRoutes"); 
 const userRoutes = require("./routes/userRoutes"); 
+const invoiceRoutes = require('./routes/invoiceRoutes');
 const protectedRoutes = require("./routes/protectedRoutes");
 
 // Import Middleware
@@ -59,6 +60,7 @@ app.use("/api/auth", authRoutes);
 
 app.use("/api/clients", clientRoutes);
 app.use("/api/users", userRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // Protected routes (require JWT authentication)
 app.use("/api/protected", authenticateToken, protectedRoutes);
