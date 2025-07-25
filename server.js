@@ -13,6 +13,7 @@ const protectedRoutes = require("./routes/protectedRoutes");
 const gameOpportunityRoutes = require('./routes/gameOpportunityRoutes');
 const drawNumberRoutes = require('./routes/drawNumberRoutes');
 const pageContentRoutes = require('./routes/pageContentRoutes');
+const productRoutes = require('./routes/productRoutes');
 
 // Import Middleware
 const errorHandler = require("./middleware/errorHandler");
@@ -67,6 +68,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/opportunities', gameOpportunityRoutes);
 app.use('/api/draw-numbers', drawNumberRoutes);
 app.use('/api/pages-content', pageContentRoutes);
+app.use('/api/products', productRoutes);
 
 
 // Protected routes (require JWT authentication)
