@@ -149,14 +149,14 @@ router.get("/", async (req, res, next) => {
     params.push(limit, offset);
     const result = await pool.query(query, params);
 
-    const totalProducts = parseInt(countResult.rows[0].count, 10);
-    const totalPages = Math.ceil(totalProducts / limit);
+    const totalEntities = parseInt(countResult.rows[0].count, 10);
+    const totalPages = Math.ceil(totalEntities / limit);
 
     res.status(200).json({
       status: "success",
       data: result.rows,
       pagination: {
-        totalProducts,
+        totalEntities,
         totalPages,
         currentPage: page,
         limit,
