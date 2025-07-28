@@ -1,6 +1,6 @@
 const PdfPrinter = require("pdfmake");
 
-// Configuração das fontes para o PDFMake
+// Configuração das fontes para o PDFMake (deve ser carregada apenas uma vez)
 const fonts = {
   Roboto: {
     normal:
@@ -22,68 +22,66 @@ const fonts = {
   },
 };
 
-// Função para gerar PDF de clientes
-const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
-  const printer = new PdfPrinter(fonts);
+const printer = new PdfPrinter(fonts);
 
-  // Preparar dados da tabela
+/**
+ * Gera um documento PDF a partir de um array de dados.
+ * @param {Array<Object>} data - Array de objetos a serem exportados.
+ * @param {Array<Object>} columns - Array de definições de coluna ({ key, header, width? }).
+ * @param {Object} reportFilters - Objeto contendo os filtros de busca e data parseados (do queryBuilder).
+ * @param {string} tableName - Nome da tabela sendo exportada (para o título do relatório).
+ * @returns {PDFKit.PDFDocument} O objeto do documento PDF (stream).
+ */
+const generatePdf = (data, columns, reportFilters, tableName) => {
+  // Prepara o corpo da tabela baseado nas colunas fornecidas
   const tableBody = [
-    // Cabeçalho da tabela
-    [
-      { text: "ID", style: "tableHeader" },
-      { text: "Nome", style: "tableHeader" },
-      { text: "CPF", style: "tableHeader" },
-      { text: "Celular", style: "tableHeader" },
-      { text: "Email", style: "tableHeader" },
-      { text: "Pré-Cadastro", style: "tableHeader" },
-      { text: "Criado Em", style: "tableHeader" },
-    ],
+    columns.map((col) => ({ text: col.header, style: "tableHeader" })),
   ];
 
-  // Adicionar dados dos clientes
-  clients.forEach((client) => {
-    tableBody.push([
-      { text: client.id.toString(), style: "tableCell" },
-      { text: client.name || "-", style: "tableCell" },
-      { text: client.cpf || "-", style: "tableCell" },
-      { text: client.cel || "-", style: "tableCell" },
-      { text: client.email || "-", style: "tableCell" },
-      { text: client.is_pre_register ? "Sim" : "Não", style: "tableCell" },
-      {
-        text: client.created_at
-          ? new Date(client.created_at).toLocaleDateString("pt-BR")
-          : "-",
-        style: "tableCell",
-      },
-    ]);
+  data.forEach((row) => {
+    tableBody.push(
+      columns.map((col) => {
+        let value = row[col.key];
+        // Heurística para campos de data
+        if (
+          col.key.includes("_at") ||
+          col.key === "birthday" ||
+          col.key.includes("Date")
+        ) {
+          value = value ? new Date(value).toLocaleDateString("pt-BR") : "-";
+        } else if (typeof value === "boolean") {
+          value = value ? "Sim" : "Não";
+        } else if (value === null || value === undefined) {
+          value = "-";
+        }
+        return { text: String(value), style: "tableCell" };
+      })
+    );
   });
 
-  // Preparar informações de filtros aplicados
-  const activeFilters = Object.entries(filters)
-    .filter(([key, value]) => value && value.trim() !== "")
-    .map(([key, value]) => `${key}: "${value}"`)
-    .join(", ");
+  // Prepara informações de filtros para o PDF
+  const activeSearchFilters = Object.entries(reportFilters.search || {})
+    .filter(([, value]) => value && String(value).trim() !== "") // Garante que o valor não seja vazio
+    .map(([key, value]) => `${key}: "${value}"`);
 
-  // Preparar informação do período
   let periodInfo = "Todos os períodos";
-  if (dateRange.startDate && dateRange.endDate) {
-    periodInfo = `${new Date(dateRange.startDate).toLocaleDateString(
+  if (reportFilters.startDate && reportFilters.endDate) {
+    periodInfo = `${new Date(reportFilters.startDate).toLocaleDateString(
       "pt-BR"
-    )} até ${new Date(dateRange.endDate).toLocaleDateString("pt-BR")}`;
-  } else if (dateRange.startDate) {
+    )} até ${new Date(reportFilters.endDate).toLocaleDateString("pt-BR")}`;
+  } else if (reportFilters.startDate) {
     periodInfo = `A partir de ${new Date(
-      dateRange.startDate
+      reportFilters.startDate
     ).toLocaleDateString("pt-BR")}`;
-  } else if (dateRange.endDate) {
-    periodInfo = `Até ${new Date(dateRange.endDate).toLocaleDateString(
+  } else if (reportFilters.endDate) {
+    periodInfo = `Até ${new Date(reportFilters.endDate).toLocaleDateString(
       "pt-BR"
     )}`;
   }
 
-  // Definição do documento PDF
   const docDefinition = {
     pageSize: "A4",
-    pageOrientation: "landscape", // Paisagem para melhor visualização da tabela
+    pageOrientation: "landscape",
     pageMargins: [40, 60, 40, 60],
 
     header: {
@@ -93,7 +91,9 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
         body: [
           [
             {
-              text: "Relatório de Clientes",
+              text: `Relatório de ${
+                tableName.charAt(0).toUpperCase() + tableName.slice(1)
+              }s`, // Ex: "Relatório de Clients"
               style: "header",
               alignment: "center",
               border: [false, false, false, true],
@@ -131,7 +131,6 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
     },
 
     content: [
-      // Informações do relatório
       {
         table: {
           widths: ["*"],
@@ -140,14 +139,13 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
               {
                 stack: [
                   { text: "Informações do Relatório", style: "subheader" },
-                  {
-                    text: `Total de registros: ${clients.length}`,
-                    style: "info",
-                  },
+                  { text: `Total de registros: ${data.length}`, style: "info" },
                   { text: `Período: ${periodInfo}`, style: "info" },
-                  activeFilters
+                  activeSearchFilters.length > 0
                     ? {
-                        text: `Filtros aplicados: ${activeFilters}`,
+                        text: `Filtros aplicados: ${activeSearchFilters.join(
+                          ", "
+                        )}`,
                         style: "info",
                       }
                     : null,
@@ -162,12 +160,10 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
         },
         margin: [0, 0, 0, 20],
       },
-
-      // Tabela de clientes
       {
         table: {
           headerRows: 1,
-          widths: ["auto", "*", "auto", "auto", "*", "auto", "auto"],
+          widths: columns.map((col) => col.width || "auto"), // Usa largura definida ou 'auto'
           body: tableBody,
         },
         layout: {
@@ -207,11 +203,7 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
         color: "#334155",
         margin: [0, 0, 0, 8],
       },
-      info: {
-        fontSize: 10,
-        color: "#64748b",
-        margin: [0, 2, 0, 2],
-      },
+      info: { fontSize: 10, color: "#64748b", margin: [0, 2, 0, 2] },
       tableHeader: {
         bold: true,
         fontSize: 10,
@@ -220,26 +212,13 @@ const generateClientsPDF = (clients, filters = {}, dateRange = {}) => {
         alignment: "center",
         margin: [5, 5, 5, 5],
       },
-      tableCell: {
-        fontSize: 9,
-        color: "#374151",
-        margin: [5, 3, 5, 3],
-      },
-      footer: {
-        fontSize: 8,
-        color: "#6b7280",
-        margin: [0, 5, 0, 0],
-      },
+      tableCell: { fontSize: 9, color: "#374151", margin: [5, 3, 5, 3] },
+      footer: { fontSize: 8, color: "#6b7280", margin: [0, 5, 0, 0] },
     },
-
-    defaultStyle: {
-      font: "Roboto",
-    },
+    defaultStyle: { font: "Roboto" },
   };
 
   return printer.createPdfKitDocument(docDefinition);
 };
 
-module.exports = {
-  generateClientsPDF,
-};
+module.exports = { generatePdf };
