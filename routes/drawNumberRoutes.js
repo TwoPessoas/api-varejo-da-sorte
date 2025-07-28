@@ -1,230 +1,192 @@
-// routes/drawNumberRoutes.js
-
+// src/routes/drawNumberRoutes.js
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/db");
+const pool = require("../config/db"); // Seu pool de conexão com o banco de dados
+
+// Middlewares e Utils Genéricos
 const {
   authenticateToken,
   authorizeRoles,
 } = require("../middleware/authMiddleware");
+const { logActivity } = require("../utils/logger");
+const { createCrudHandlers } = require("../utils/crudHandlers"); // Importa a factory de CRUD
+const { createExportHandler } = require("../utils/exportHandlers"); // Importa a factory de Exportação
+const { toSnakeCase, convertKeysToCamelCase } = require("../utils/objectUtils"); // Para camelCase
+const { buildQuery } = require("../utils/queryBuilder"); // Para reutilizar na custom getAll/getById
+
+// Validações Específicas de DrawNumber
 const {
   drawNumberValidationRules,
   drawNumberValidationErrors,
-} = require("../validators/drawNumberValidador");
-const { logActivity } = require("../utils/logger");
+} = require("../validators/drawNumberValidador"); // Assumindo que este arquivo existe e está correto
 
-// Protege todas as rotas para serem acessíveis apenas por 'admin'
-router.use(authenticateToken, authorizeRoles("admin"));
+// --- Configurações Específicas da Entidade DrawNumber ---
+const tableName = "draw_numbers";
+const idField = "id"; // Campo da chave primária
 
-// Rota para CRIAR um novo número de sorteio (CREATE)
-router.post(
-  "/",
-  drawNumberValidationRules,
-  drawNumberValidationErrors,
-  async (req, res, next) => {
-    try {
-      const { invoice_id, number } = req.body;
+// Campos que podem ser criados (camelCase)
+const creatableFields = ["invoiceId", "number"];
 
-      const sql = `
-                INSERT INTO draw_numbers (invoice_id, number)
-                VALUES ($1, $2)
-                RETURNING *`;
+// Campos que podem ser atualizados (camelCase)
+const updatableFields = ["number", "active", "winnerAt", "emailSendedAt"];
 
-      const params = [invoice_id, number];
-      const result = await pool.query(sql, params);
+// Campos que podem ser pesquisados/filtrados na listagem e exportação (camelCase)
+// Note: o `queryBuilder` atualmente busca em campos diretos da tabela.
+// Para buscar em campos com JOIN (fiscalCode, clientName), seria necessário aprimorar
+// o `buildQuery` ou adicionar lógica de filtragem customizada em `getAllDrawNumbers`.
+const searchableFields = ["invoiceId", "number"];
 
-      // --- LOG DE AUDITORIA ---
-      await logActivity(
-        req.user.id, // ID do usuário logado, vindo do token JWT
-        "CREATE_DRAW_NUMBER",
-        { type: "draw_numbers", id: result.rows[0].id },
-        { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-      );
-      // --- FIM DO LOG ---
+// Definição das colunas para exportação (header, key, width para XLSX/PDF)
+const drawNumberExportColumns = [
+  { key: "id", header: "ID", width: 10 },
+  { key: "invoice_id", header: "ID Fatura", width: 15 },
+  { key: "number", header: "Número da Sorte", width: 20 },
+  { key: "active", header: "Ativo", width: 10 },
+  { key: "winner_at", header: "Data do Ganhador", width: 25 },
+  { key: "email_sended_at", header: "Email Enviado Em", width: 25 },
+  { key: "created_at", header: "Criado Em", width: 25 },
+  { key: "updated_at", header: "Atualizado Em", width: 25 },
+  // Campos vindos dos JOINs, para que apareçam na exportação
+  { key: "fiscal_code", header: "Cód. Fiscal Fatura", width: 25 },
+  { key: "client_name", header: "Nome Cliente", width: 30 },
+];
 
-      res.status(201).json({ status: "success", data: result.rows[0] });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// Rota para LER todos os números de sorteio (READ ALL)
-router.get("/", async (req, res, next) => {
+// --- Função getAll customizada para DrawNumbers (com JOINs para fiscal_code e client_name) ---
+const getAllDrawNumbers = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const search = JSON.parse(req.query.search) || {};
-    const offset = (page - 1) * limit;
+    // Reutiliza buildQuery para lidar com whereClause, params e paginação/ordenação
+    const { whereClause, params, currentPage, limit, offset, nextParamIndex } =
+      buildQuery({
+        tableName: tableName, // Nome da tabela principal para filtros do queryBuilder
+        queryParams: req.query,
+        searchableFields: searchableFields, // Campos pesquisáveis da tabela draw_numbers
+        enableDateFiltering: true, // Habilitar filtro por created_at se necessário
+        orderBy: req.query.orderBy || "created_at", // Ordenação padrão
+        orderDirection: req.query.orderDirection || "DESC",
+      });
 
-    let query =
-      "SELECT dn.*, i.fiscal_code, c.name as client_name FROM draw_numbers dn JOIN invoices i ON dn.invoice_id = i.id JOIN clients c ON i.client_id = c.id";
-    let countQuery = "SELECT COUNT(*) FROM draw_numbers";
-    let where = " WHERE 1=1 ";
-    const params = [];
-    Object.keys(search).forEach((key) => {
-      if (
-        search[key] !== undefined &&
-        search[key] !== null &&
-        search[key] !== ""
-      ) {
-        const snakeKey = key.replace(/([A-Z])/g, "_$1").toLowerCase();
-        const condition = `${snakeKey} ILIKE $${params.length + 1}`;
-        where += ` AND ${condition}`;
-        params.push(`%${search[key]}%`);
-      }
-    });
-
-    countQuery += where;
+    // Query para contagem total de entidades (apenas na tabela principal)
+    const countQuery = `SELECT COUNT(*) FROM ${tableName} ${whereClause}`;
     const countResult = await pool.query(countQuery, params);
+    const totalEntities = parseInt(countResult.rows[0].count, 10);
+    const totalPages = Math.ceil(totalEntities / limit);
 
-    query += where;
-    query += ` ORDER BY dn.created_at DESC LIMIT $${
-      params.length + 1
-    } OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+    // Query principal para buscar entidades com paginação, ordenação e JOINs
+    const orderByField = toSnakeCase(req.query.orderBy || "created_at");
+    const orderDirection = req.query.orderDirection || "DESC";
+
+    let query = `
+      SELECT 
+        dn.*, 
+        i.fiscal_code, 
+        c.name as client_name
+      FROM ${tableName} dn
+      JOIN invoices i ON dn.invoice_id = i.id
+      JOIN clients c ON i.client_id = c.id
+      ${whereClause} 
+      ORDER BY ${orderByField} ${orderDirection} 
+      LIMIT $${nextParamIndex} OFFSET $${nextParamIndex + 1}`;
+
+    params.push(limit, offset); // Adiciona limit e offset aos parâmetros da query
     const result = await pool.query(query, params);
-
-    const totalProducts = parseInt(countResult.rows[0].count, 10);
-    const totalPages = Math.ceil(totalProducts / limit);
 
     res.status(200).json({
       status: "success",
-      data: result.rows,
+      data: result.rows.map(convertKeysToCamelCase), // Converte chaves para camelCase
       pagination: {
-        totalProducts,
+        totalEntities,
         totalPages,
-        currentPage: page,
+        currentPage,
         limit,
       },
     });
   } catch (error) {
     next(error);
   }
-});
+};
 
-// Rota para LER um número específico por ID (READ ONE)
-router.get("/:id", async (req, res, next) => {
+// --- Função getById customizada para DrawNumbers (com JOINs) ---
+const getDrawNumberById = async (req, res, next) => {
   try {
     const { id } = req.params;
-
     const query = `
-            SELECT 
-                dn.*, 
-                i.fiscal_code, 
-                c.name as client_name
-            FROM 
-                draw_numbers dn
-            JOIN 
-                invoices i ON dn.invoice_id = i.id
-            JOIN 
-                clients c ON i.client_id = c.id
-            WHERE
-                dn.id = $1`;
+      SELECT 
+        dn.*, 
+        i.fiscal_code, 
+        c.name as client_name
+      FROM ${tableName} dn
+      JOIN invoices i ON dn.invoice_id = i.id
+      JOIN clients c ON i.client_id = c.id
+      WHERE dn.id = $1`;
 
     const result = await pool.query(query, [id]);
 
     if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({
-          status: "error",
-          message: "Número de sorteio não encontrado.",
-        });
+      return res.status(404).json({
+        status: "error",
+        message: "Número de sorteio não encontrado.",
+      });
     }
-    res.status(200).json({ status: "success", data: result.rows[0] });
+    res
+      .status(200)
+      .json({
+        status: "success",
+        data: convertKeysToCamelCase(result.rows[0]),
+      });
   } catch (error) {
     next(error);
   }
+};
+
+// --- Cria handlers CRUD para DrawNumbers (usando funções genéricas para create, update, delete) ---
+const drawNumberCrud = createCrudHandlers({
+  pool,
+  tableName,
+  idField,
+  creatableFields,
+  updatableFields,
+  logActivity,
+  defaultOrderBy: "createdAt", // Ordenação padrão para outras operações CRUD
+  defaultOrderDirection: "DESC",
 });
 
-// Rota para ATUALIZAR um número de sorteio (UPDATE)
-router.put(
-  "/:id",
-  drawNumberValidationRules,
+// --- Cria handler de Exportação para DrawNumbers ---
+const exportDrawNumbersHandler = createExportHandler({
+  pool,
+  tableName,
+  logActivity,
+  columnsConfig: drawNumberExportColumns,
+  searchableFields,
+});
+
+// --- Aplica middlewares de autenticação e autorização para TODAS as rotas de draw number ---
+router.use(authenticateToken, authorizeRoles("admin"));
+
+// --- Definição das Rotas ---
+// Rota GET ALL customizada para incluir dados de JOIN
+router.get("/", getAllDrawNumbers);
+
+// Rota GET BY ID customizada para incluir dados de JOIN
+router.get("/:id", getDrawNumberById);
+
+// Rotas CREATE, UPDATE e DELETE usam os handlers genéricos
+router.post(
+  "/",
+  drawNumberValidationRules, // Aplica as validações antes do handler genérico
   drawNumberValidationErrors,
-  async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const { number, active, winner_at, email_sended_at } = req.body;
-
-      let sql = "UPDATE draw_numbers SET updated_at = NOW(), number = $1";
-      const params = [number];
-
-      if (active !== undefined) {
-        params.push(active);
-        sql += ", active = $" + params.length;
-      }
-
-      if (winner_at !== undefined) {
-        params.push(winner_at);
-        sql += ", winner_at = $" + params.length;
-      }
-
-      if (email_sended_at !== undefined) {
-        params.push(email_sended_at);
-        sql += ", email_sended_at = $" + params.length;
-      }
-
-      params.push(id);
-      sql += " WHERE id = $" + params.length + " RETURNING *";
-
-      const result = await pool.query(sql, params);
-
-      if (result.rowCount === 0) {
-        return res
-          .status(404)
-          .json({
-            status: "error",
-            message: "Número de sorteio não encontrado.",
-          });
-      }
-
-      // --- LOG DE AUDITORIA ---
-      await logActivity(
-        req.user.id, // ID do usuário logado, vindo do token JWT
-        "UPDATE_DRAW_NUMBER",
-        { type: "draw_numbers", id },
-        { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-      );
-      // --- FIM DO LOG ---
-
-      res.status(200).json({ status: "success", data: result.rows[0] });
-    } catch (error) {
-      next(error);
-    }
-  }
+  drawNumberCrud.create
 );
 
-// Rota para DELETAR um número de sorteio (DELETE)
-router.delete("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query("DELETE FROM draw_numbers WHERE id = $1", [
-      id,
-    ]);
+router.put(
+  "/:id",
+  drawNumberValidationRules, // Aplica as validações antes do handler genérico
+  drawNumberValidationErrors,
+  drawNumberCrud.update
+);
 
-    if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({
-          status: "error",
-          message: "Número de sorteio não encontrado.",
-        });
-    }
+router.delete("/:id", drawNumberCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
 
-    // --- LOG DE AUDITORIA ---
-    await logActivity(
-      req.user.id, // ID do usuário logado, vindo do token JWT
-      "DELETE_DRAW_NUMBER",
-      { type: "draw_numbers", id },
-      { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-    );
-    // --- FIM DO LOG ---
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
+// Rota de Exportação genérica
+router.get("/export", exportDrawNumbersHandler);
 
 module.exports = router;
