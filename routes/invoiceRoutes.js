@@ -1,192 +1,446 @@
-// routes/invoiceRoutes.js
-
+// src/routes/invoiceRoutes.js
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/db");
+const pool = require("../config/db"); // Seu pool de conexão com o banco de dados
+const axios = require("axios"); // Para fazer requisições HTTP para a API externa
+
+// Middlewares e Utils Genéricos
 const {
-    authenticateToken,
-    authorizeRoles,
+  authenticateToken,
+  authorizeRoles,
 } = require("../middleware/authMiddleware");
-const {
-    invoiceValidationRules,
-    invoiceValidationErrors 
-} = require("../validators/invoiceValidador");
 const { logActivity } = require("../utils/logger");
+const { createCrudHandlers } = require("../utils/crudHandlers"); // Importa a factory de CRUD
+const { createExportHandler } = require("../utils/exportHandlers"); // Importa a factory de Exportação
+const { toSnakeCase, convertKeysToCamelCase } = require("../utils/objectUtils"); // Para toSnakeCase
+const { buildQuery } = require("../utils/queryBuilder"); // Para reutilizar na custom getAll
 
+// Validações Específicas da Fatura
+const {
+  invoiceValidationRules,
+  invoiceValidationErrors,
+} = require("../validators/invoiceValidador");
 
-// Proteger todas as rotas de invoice para serem acessíveis apenas por 'admin'
+// --- Configurações Específicas da Entidade Fatura ---
+const tableName = "invoices";
+const idField = "id";
+
+// Configurações de Negócio
+const MINIMUM_FISCAL_NOTE_VALUE = 50; // R\$ 50,00 - valor mínimo para participar
+
+// Campos que podem ser criados (camelCase)
+const creatableFields = [
+  "fiscalCode",
+  "clientId",
+  "invoceValue",
+  "hasItem",
+  "hasCreditcard",
+  "hasPartnerCode",
+  "pdv",
+  "store",
+  "numCoupon",
+  "cnpj",
+  "creditcard",
+];
+
+// Campos que podem ser atualizados (camelCase)
+const updatableFields = [
+  /*'fiscalCode', 'invoceValue', 'hasItem', 'hasCreditcard', 'hasPartnerCode',
+  'pdv', 'store', 'numCoupon', 'cnpj', 'creditcard', 'clientId'*/
+];
+
+// Campos que podem ser pesquisados/filtrados na listagem e exportação (camelCase)
+const searchableFields = [
+  "fiscalCode",
+  "cnpj",
+  "store",
+  "numCoupon",
+  "pdv",
+  "clientId",
+];
+
+// Definição das colunas para exportação
+const invoiceExportColumns = [
+  { key: "id", header: "ID", width: 10 },
+  { key: "fiscal_code", header: "Cód. Fiscal", width: 20 },
+  { key: "invoce_value", header: "Valor", width: 15 },
+  { key: "has_item", header: "Tem Item", width: 12 },
+  { key: "has_creditcard", header: "Tem Cartão", width: 15 },
+  { key: "has_partner_code", header: "Tem Cód. Parceiro", width: 20 },
+  { key: "pdv", header: "PDV", width: 10 },
+  { key: "store", header: "Loja", width: 10 },
+  { key: "num_coupon", header: "Num. Cupom", width: 15 },
+  { key: "cnpj", header: "CNPJ", width: 20 },
+  { key: "creditcard", header: "Cartão Crédito", width: 20 },
+  { key: "client_id", header: "ID Cliente", width: 15 },
+  { key: "created_at", header: "Criado Em", width: 25 },
+  { key: "updated_at", header: "Atualizado Em", width: 25 },
+];
+
+// --- Configurações da API Externa ---
+const EXTERNAL_API_URL =
+  "https://atakarejo.api.integrasky.cloud/DF52GXU1/atakarejo/venda/produtos_participantes";
+const EXTERNAL_API_AUTH = Buffer.from(
+  "4QvbfSf8_Promocao:<K11(X8Y2eA1Hk1ut3"
+).toString("base64"); // Autenticação Base64
+//const EXTERNAL_API_AUTH = Buffer.from("4QvbfSf8_Promocao:<K11(X8Y2eA1Hk1ut3", 'base64').toString('utf8');
+
+// --- Funções Auxiliares ---
+const hasCreditcardInInvoice = (bandeiras) => {
+  if (!Array.isArray(bandeiras)) return false;
+
+  for (const p of bandeiras) {
+    if (p === 30 || p === 31 || p === 32) return true;
+  }
+  return false;
+};
+
+const hasPartnerCodeInInvoice = (json) => {
+  return false; // Mantendo a lógica original
+};
+
+const getProductsInInvoice = (json) => {
+  const products = json.detalhe_produto;
+  if (!Array.isArray(products) || products.length === 0) {
+    return [];
+  }
+  return products;
+};
+
+const getInfoInvoiceFromExternalApi = async (fiscalCode) => {
+  try {
+    /*const response = await axios.get(`${EXTERNAL_API_URL}?chv_acs=${fiscalCode}`, {
+            headers: {
+                'Authorization': `Basic ${EXTERNAL_API_AUTH}`
+            }
+        });
+
+        if (response.status !== 200) {
+            throw new Error(`API externa retornou status ${response.status}: ${response.data}`);
+        }
+
+        const jsonObject = response.data;
+        const bandeira = jsonObject.bandeira;
+        const hasCreditcard = hasCreditcardInInvoice(bandeira);
+        const hasPartnerCode = hasPartnerCodeInInvoice(jsonObject);
+        const productsInInvoice = getProductsInInvoice(jsonObject);
+        const hasItem = productsInInvoice.length > 0;
+
+        return {
+            invoceValue: parseFloat(jsonObject.valor_total),
+            hasItem: hasItem,
+            hasCreditcard: hasCreditcard,
+            hasPartnerCode: hasPartnerCode,
+            pdv: parseInt(jsonObject.num_pdv),
+            store: parseInt(jsonObject.num_loja),
+            numCoupon: parseInt(jsonObject.num_cupom),
+            cnpj: jsonObject.cnpj.toString(),
+            creditcard: JSON.stringify(bandeira),
+        };*/
+
+    //mock de dados para simulação
+    return {
+      invoceValue: Math.random() * 200 + 1,
+      hasItem: false,
+      hasCreditcard: false,
+      hasPartnerCode: false,
+      pdv: 1,
+      store: 2,
+      numCoupon: 3,
+      cnpj: "12345678901234",
+      creditcard: "Visa",
+    };
+  } catch (error) {
+    console.error(
+      `Erro ao consultar API externa com fiscalCode ${fiscalCode}:`,
+      error.message
+    );
+    throw new Error(
+      `Falha ao obter informações da nota fiscal: ${error.message}`
+    );
+  }
+};
+
+// Função para calcular total de chances no jogo
+const getTotalGameChances = (invoiceData) => {
+  if (!invoiceData.invoceValue) {
+    throw new Error("Não foi possível recuperar o valor da nota fiscal");
+  }
+
+  const referenceValue = MINIMUM_FISCAL_NOTE_VALUE;
+  if (invoiceData.invoceValue < referenceValue) {
+    throw new Error(
+      `O valor da nota deve ser maior ou igual a R\$ ${MINIMUM_FISCAL_NOTE_VALUE},00`
+    );
+  }
+
+  // Calcula quantas vezes o valor mínimo cabe no valor da nota (arredondado para baixo)
+  let totalGameChances = Math.floor(invoiceData.invoceValue / referenceValue);
+
+  // Dobra as chances se tiver produto, cartão de crédito ou código de parceiro
+  if (
+    invoiceData.hasItem ||
+    invoiceData.hasCreditcard ||
+    invoiceData.hasPartnerCode
+  ) {
+    totalGameChances *= 2;
+  }
+
+  return totalGameChances;
+};
+
+// Função para gerar número da sorte único
+const generateDrawNumber = async (client) => {
+  let number;
+  let exists;
+
+  do {
+    // Gera número aleatório entre 1 e 9999999
+    number = Math.floor(Math.random() * 9999999) + 1;
+
+    // Verifica se o número já existe
+    const checkResult = await client.query(
+      "SELECT id FROM draw_numbers WHERE number = $1",
+      [number]
+    );
+    exists = checkResult.rows.length > 0;
+  } while (exists);
+
+  return number;
+};
+
+// --- Função getAll customizada para invoices (com JOIN) ---
+const getAllInvoicesWithClientName = async (req, res, next) => {
+  try {
+    const { whereClause, params, currentPage, limit, offset, nextParamIndex } =
+      buildQuery({
+        tableName: tableName,
+        queryParams: req.query,
+        searchableFields: searchableFields,
+        enableDateFiltering: true,
+        orderBy: req.query.orderBy || "created_at",
+        orderDirection: req.query.orderDirection || "DESC",
+      });
+
+    // Query para contagem total
+    const countQuery = `SELECT COUNT(*) FROM ${tableName} ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const totalEntities = parseInt(countResult.rows[0].count, 10);
+    const totalPages = Math.ceil(totalEntities / limit);
+
+    // Query principal com JOIN
+    const orderByField = toSnakeCase(req.query.orderBy || "created_at");
+    const orderDirection = req.query.orderDirection || "DESC";
+
+    let query = `
+      SELECT 
+        i.*, 
+        c.name as client_name,
+        c.cpf as client_cpf,
+        c.email as client_email
+      FROM ${tableName} i
+      JOIN clients c ON i.client_id = c.id
+      ${whereClause} 
+      ORDER BY ${orderByField} ${orderDirection} 
+      LIMIT $${nextParamIndex} OFFSET $${nextParamIndex + 1}`;
+
+    params.push(limit, offset);
+    const result = await pool.query(query, params);
+
+    res.status(200).json({
+      status: "success",
+      data: result.rows.map(convertKeysToCamelCase),
+      pagination: {
+        totalEntities,
+        totalPages,
+        currentPage,
+        limit,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- Função CREATE customizada com transação ---
+const createInvoiceWithTransaction = async (req, res, next) => {
+  const client = await pool.connect(); // Obtém uma conexão específica para a transação
+
+  try {
+    await client.query("BEGIN"); // Inicia a transação
+
+    const { fiscalCode, clientId } = req.body;
+
+    if (!fiscalCode || !clientId) {
+      throw new Error(
+        "fiscalCode e clientId são obrigatórios para criar uma fatura."
+      );
+    }
+
+    // 1. Obter informações da API externa
+    console.log(
+      `[Invoice Create] Consultando API externa para fiscalCode: ${fiscalCode}`
+    );
+    const invoiceExternalData = await getInfoInvoiceFromExternalApi(fiscalCode);
+    console.log(`[Invoice Create] invoiceExternalData:`, invoiceExternalData);
+
+    // 2. Calcular total de chances no jogo
+    const totalGameChances = getTotalGameChances(invoiceExternalData);
+    console.log(
+      `[Invoice Create] Total de chances calculadas: ${totalGameChances}`
+    );
+
+    // 3. Preparar dados completos da fatura
+    const completeInvoiceData = {
+      fiscalCode,
+      clientId,
+      ...invoiceExternalData,
+    };
+
+    // 4. Inserir a fatura no banco de dados
+    const invoiceFields = creatableFields
+      .map((field) => toSnakeCase(field))
+      .join(", ");
+    const invoiceValues = creatableFields
+      .map((_, index) => `$${index + 1}`)
+      .join(", ");
+    const invoiceParams = creatableFields.map(
+      (field) => completeInvoiceData[field]
+    );
+
+    const invoiceSql = `INSERT INTO ${tableName} (${invoiceFields}) VALUES (${invoiceValues}) RETURNING *`;
+    const invoiceResult = await client.query(invoiceSql, invoiceParams);
+    const createdInvoice = invoiceResult.rows[0];
+
+    console.log(`[Invoice Create] Fatura criada com ID: ${createdInvoice.id}`);
+
+    // 5. Criar oportunidades de jogo e números da sorte
+    const gameOpportunities = [];
+    const drawNumbers = [];
+
+    for (let i = 0; i < totalGameChances; i++) {
+      // Criar GameOpportunity
+      const gameOpportunityResult = await client.query(
+        `INSERT INTO game_opportunities (invoice_id, gift, active, created_at, updated_at) 
+         VALUES ($1, $2, $3, NOW(), NOW()) RETURNING *`,
+        [createdInvoice.id, null, true] // gift é null inicialmente, active é true
+      );
+      gameOpportunities.push(gameOpportunityResult.rows[0]);
+
+      // Gerar número da sorte único
+      const drawNumber = await generateDrawNumber(client);
+
+      // Criar DrawNumber
+      const drawNumberResult = await client.query(
+        `INSERT INTO draw_numbers (invoice_id, number, active, created_at, updated_at) 
+         VALUES ($1, $2, $3, NOW(), NOW()) RETURNING *`,
+        [createdInvoice.id, drawNumber, true] // active é true
+      );
+      drawNumbers.push(drawNumberResult.rows[0]);
+    }
+
+    // 6. Buscar informações adicionais para a resposta
+    // Total de faturas do cliente
+    const totalInvoicesResult = await client.query(
+      "SELECT COUNT(*) FROM invoices WHERE client_id = $1",
+      [clientId]
+    );
+    const totalInvoices = parseInt(totalInvoicesResult.rows[0].count, 10);
+
+    // Total de chances de jogo do cliente
+    const totalGameChancesResult = await client.query(
+      `SELECT COUNT(*) FROM game_opportunities go 
+       JOIN invoices i ON go.invoice_id = i.id 
+       WHERE i.client_id = $1`,
+      [clientId]
+    );
+    const totalClientGameChances = parseInt(
+      totalGameChancesResult.rows[0].count,
+      10
+    );
+
+    await client.query("COMMIT"); // Confirma a transação
+
+    // 7. Log de auditoria
+    await logActivity(
+      req.user.id,
+      "CREATE_INVOICE",
+      { type: "invoices", id: createdInvoice.id },
+      {
+        requestBody: req.body,
+        totalGameChances,
+        invoiceValue: invoiceExternalData.invoceValue,
+      }
+    );
+
+    // 8. Preparar resposta detalhada
+    const response = {
+      invoice: convertKeysToCamelCase(createdInvoice),
+      totalInvoices: totalInvoices,
+      totalGameChances: totalClientGameChances,
+      invoiceGameChances: totalGameChances,
+      drawNumbers: drawNumbers.map(convertKeysToCamelCase),
+      gameOpportunities: gameOpportunities.map(convertKeysToCamelCase),
+      // products: [], // Você pode implementar a busca de produtos se necessário
+    };
+
+    console.log(
+      `[Invoice Create] Processo concluído com sucesso para fatura ID: ${createdInvoice.id}`
+    );
+
+    res.status(201).json({
+      status: "success",
+      message: "Fatura criada com sucesso",
+      data: response,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK"); // Desfaz a transação em caso de erro
+    console.error(
+      "[Invoice Create] Erro durante criação da fatura:",
+      error.message
+    );
+    next(error);
+  } finally {
+    client.release(); // Libera a conexão de volta para o pool
+  }
+};
+
+// --- Criação dos Handlers CRUD para Faturas (sem o create customizado) ---
+const invoiceCrud = createCrudHandlers({
+  pool,
+  tableName,
+  idField,
+  creatableFields,
+  updatableFields,
+  logActivity,
+  defaultOrderBy: "createdAt",
+  defaultOrderDirection: "DESC",
+  // Removemos o additionalLogic.preCreate pois agora temos um create customizado
+});
+
+// --- Criação do Handler de Exportação para Faturas ---
+const exportInvoicesHandler = createExportHandler({
+  pool,
+  tableName,
+  logActivity,
+  columnsConfig: invoiceExportColumns,
+  searchableFields,
+});
+
+// --- Aplicação de Middlewares ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
-// Rota para CRIAR uma nova invoice (CREATE)
+// --- Definição das Rotas ---
+router.get("/", getAllInvoicesWithClientName);
 router.post(
-    "/",
-    authenticateToken,
-    authorizeRoles("admin"),
-    invoiceValidationRules,
-    invoiceValidationErrors,
-    async (req, res, next) => {
-        try {
-            /*const { fiscal_code, invoce_value, has_item, has_creditcard, has_partner_code, pdv, store, num_coupon, cnpj, creditcard, client_id } = req.body;
-
-            const sql = `
-                INSERT INTO invoices (fiscal_code, invoce_value, has_item, has_creditcard, has_partner_code, pdv, store, num_coupon, cnpj, creditcard, client_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                RETURNING *`;
-            
-            const params = [fiscal_code, invoce_value, has_item, has_creditcard, has_partner_code, pdv, store, num_coupon, cnpj, creditcard, client_id];
-            */
-           let invoce_value = 10;
-
-            const { fiscal_code, client_id } = req.body;
-
-            const sql = `
-                INSERT INTO invoices (fiscal_code, client_id, invoce_value)
-                VALUES ($1, $2, $3)
-                RETURNING *`;
-            
-            const params = [fiscal_code, client_id, invoce_value];            
-            
-            const result = await pool.query(sql, params);
-
-            // --- LOG DE AUDITORIA ---
-            await logActivity(
-                req.user.id, // ID do usuário logado, vindo do token JWT
-                'CREATE_INVOICE',
-                { type: 'invoices', id: result.rows[0].id },
-                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-            );
-            // --- FIM DO LOG ---
-
-            res.status(201).json({ status: "success", data: result.rows[0] });
-        } catch (error) {
-            next(error);
-        }
-    }
-);
-
-// Rota para LER todas as invoices (READ ALL)
-router.get(
-    "/",
-    authenticateToken,
-    authorizeRoles("admin"),
-    async (req, res, next) => {
-        try {
-            // Query para buscar invoices e também alguns dados do cliente associado
-            const query = `
-                SELECT i.*, c.name as client_name 
-                FROM invoices i
-                JOIN clients c ON i.client_id = c.id
-                ORDER BY i.created_at DESC`;
-            
-            const result = await pool.query(query);
-            res.status(200).json({ status: "success", data: result.rows });
-        } catch (error) {
-            next(error);
-        }
-    }
-);
-
-// Rota para LER uma invoice específica por ID (READ ONE)
-router.get(
-    "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
-    async (req, res, next) => {
-        try {
-            const { id } = req.params;
-            const result = await pool.query("SELECT * FROM invoices WHERE id = $1", [id]);
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ status: "error", message: "Invoice não encontrada." });
-            }
-            res.status(200).json({ status: "success", data: result.rows[0] });
-        } catch (error) {
-            next(error);
-        }
-    }
-);
-
-// Rota para ATUALIZAR uma invoice (UPDATE)
-router.put(
-    "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
-    invoiceValidationRules,
-    invoiceValidationErrors,
-    async (req, res, next) => {
-        try {
-            const { id } = req.params;
-            /*const { fiscal_code, invoce_value, has_item, has_creditcard, has_partner_code, pdv, store, num_coupon, cnpj, creditcard, client_id } = req.body;
-            
-            const sql = `
-                UPDATE invoices SET 
-                    fiscal_code = $1, invoce_value = $2, has_item = $3, has_creditcard = $4, has_partner_code = $5, pdv = $6, store = $7, num_coupon = $8, cnpj = $9, creditcard = $10, client_id = $11, "updatedAt" = NOW()
-                WHERE id = $12
-                RETURNING *`;
-            
-            const params = [fiscal_code, invoce_value, has_item, has_creditcard, has_partner_code, pdv, store, num_coupon, cnpj, creditcard, client_id, id];
-            */
-            const { fiscal_code } = req.body;
-            
-            const sql = `
-                UPDATE invoices SET 
-                    fiscal_code = $1, updated_at = NOW()
-                WHERE id = $2
-                RETURNING *`;
-            
-            const params = [fiscal_code, id];
-
-
-            const result = await pool.query(sql, params);
-
-            if (result.rowCount === 0) {
-                return res.status(404).json({ status: "error", message: "Invoice não encontrada." });
-            }
-
-            // --- LOG DE AUDITORIA ---
-            await logActivity(
-                req.user.id, // ID do usuário logado, vindo do token JWT
-                'UPDATE_INVOICE',
-                { type: 'invoices', id },
-                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-            );
-            // --- FIM DO LOG ---
-
-            res.status(200).json({ status: "success", data: result.rows[0] });
-        } catch (error) {
-            next(error);
-        }
-    }
-);
-
-// Rota para DELETAR uma invoice (DELETE)
-router.delete(
-    "/:id",
-    authenticateToken,
-    authorizeRoles("admin"),
-    async (req, res, next) => {
-        try {
-            const { id } = req.params;
-            const result = await pool.query("DELETE FROM invoices WHERE id = $1", [id]);
-
-            if (result.rowCount === 0) {
-                return res.status(404).json({ status: "error", message: "Invoice não encontrada." });
-            }
-
-            // --- LOG DE AUDITORIA ---
-            await logActivity(
-                req.user.id, // ID do usuário logado, vindo do token JWT
-                'DELETE_INVOICE',
-                { type: 'invoices', id },
-                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-            );
-            // --- FIM DO LOG ---
-
-            res.status(204).send();
-        } catch (error) {
-            next(error);
-        }
-    }
-);
+  "/",
+  invoiceValidationRules,
+  invoiceValidationErrors,
+  createInvoiceWithTransaction
+); // CREATE customizado
+router.get("/:id", invoiceCrud.getById);
+//router.put('/:id', invoiceValidationRules, invoiceValidationErrors, invoiceCrud.update);
+router.delete("/:id", invoiceCrud.remove);
+router.get("/export", exportInvoicesHandler);
 
 module.exports = router;
