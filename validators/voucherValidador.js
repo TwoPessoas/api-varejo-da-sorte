@@ -4,77 +4,97 @@ const { body, validationResult } = require("express-validator");
 const pool = require("../config/db");
 
 const voucherValidationRules = () => [
-    body("coupom")
-        .notEmpty().withMessage("O código do cupom é obrigatório.")
-        .isString().withMessage("O cupom deve ser um texto.")
-        .isLength({ max: 255 }).withMessage("O cupom deve ter no máximo 255 caracteres.")
-        .custom(async (value, { req }) => {
-            // Validação para garantir que o 'coupom' é único.
-            const query = req.method === 'PUT'
-                ? "SELECT id FROM vouchers WHERE coupom = $1 AND id != $2"
-                : "SELECT id FROM vouchers WHERE coupom = $1";
-            
-            const params = req.method === 'PUT' ? [value, req.params.id] : [value];
-            const voucher = await pool.query(query, params);
+  body("coupom")
+    .notEmpty()
+    .withMessage("O código do cupom é obrigatório.")
+    .isString()
+    .withMessage("O cupom deve ser um texto.")
+    .isLength({ max: 255 })
+    .withMessage("O cupom deve ter no máximo 255 caracteres.")
+    .custom(async (value, { req }) => {
+      // Validação para garantir que o 'coupom' é único.
+      const query =
+        req.method === "PUT"
+          ? "SELECT id FROM vouchers WHERE coupom = $1 AND id != $2"
+          : "SELECT id FROM vouchers WHERE coupom = $1";
 
-            if (voucher.rows.length > 0) {
-                throw new Error("Este código de cupom já está em uso.");
-            }
-            return true;
-        }),
+      const params = req.method === "PUT" ? [value, req.params.id] : [value];
+      const voucher = await pool.query(query, params);
 
-    body("game_opportunity_id")
-        .optional({ nullable: true })
-        .isInt({ gt: 0 }).withMessage("O ID da oportunidade de jogo deve ser um inteiro positivo.")
-        .custom(async (value, { req }) => {
-            if (!value) return true; // Se não for fornecido, não há o que validar.
+      if (voucher.rows.length > 0) {
+        throw new Error("Este código de cupom já está em uso.");
+      }
+      return true;
+    }),
 
-            // 1. Verifica se a oportunidade de jogo existe.
-            const opportunity = await pool.query("SELECT id FROM game_opportunities WHERE id = $1", [value]);
-            if (opportunity.rows.length === 0) {
-                throw new Error("A oportunidade de jogo informada não existe.");
-            }
+  body("gameOpportunityId")
+    .optional({ nullable: true })
+    .isInt({ gt: 0 })
+    .withMessage("O ID da oportunidade de jogo deve ser um inteiro positivo.")
+    .custom(async (value, { req }) => {
+      if (!value) return true; // Se não for fornecido, não há o que validar.
 
-            // 2. Verifica se a oportunidade de jogo já está vinculada a OUTRO voucher (regra do One-to-One).
-            const query = req.method === 'PUT'
-                ? "SELECT id FROM vouchers WHERE game_opportunity_id = $1 AND id != $2"
-                : "SELECT id FROM vouchers WHERE game_opportunity_id = $1";
-            
-            const params = req.method === 'PUT' ? [value, req.params.id] : [value];
-            const voucherLink = await pool.query(query, params);
+      // 1. Verifica se a oportunidade de jogo existe.
+      const opportunity = await pool.query(
+        "SELECT id FROM game_opportunities WHERE id = $1",
+        [value]
+      );
+      if (opportunity.rows.length === 0) {
+        throw new Error("A oportunidade de jogo informada não existe.");
+      }
 
-            if (voucherLink.rows.length > 0) {
-                throw new Error("Esta oportunidade de jogo já está associada a outro voucher.");
-            }
-            return true;
-        }),
+      // 2. Verifica se a oportunidade de jogo já está vinculada a OUTRO voucher (regra do One-to-One).
+      const query =
+        req.method === "PUT"
+          ? "SELECT id FROM vouchers WHERE game_opportunity_id = $1 AND id != $2"
+          : "SELECT id FROM vouchers WHERE game_opportunity_id = $1";
 
-    body("draw_date")
-        .optional({ nullable: true })
-        .isISO8601().toDate().withMessage("A data do sorteio deve ser uma data válida no formato ISO8601."),
+      const params = req.method === "PUT" ? [value, req.params.id] : [value];
+      const voucherLink = await pool.query(query, params);
 
-    body("voucher_value")
-        .optional({ nullable: true })
-        .isInt().withMessage("O valor do voucher deve ser um número inteiro."),
+      if (voucherLink.rows.length > 0) {
+        throw new Error(
+          "Esta oportunidade de jogo já está associada a outro voucher."
+        );
+      }
+      return true;
+    }),
 
-    body("email_sended_at")
-        .optional({ nullable: true })
-        .isISO8601().toDate().withMessage("A data de envio do e-mail deve ser válida no formato ISO8601."),
+  body("drawDate")
+    .optional({ nullable: true })
+    .isISO8601()
+    .toDate()
+    .withMessage(
+      "A data do sorteio deve ser uma data válida no formato ISO8601."
+    ),
+
+  body("voucherValue")
+    .optional({ nullable: true })
+    .isInt()
+    .withMessage("O valor do voucher deve ser um número inteiro."),
+
+  body("emailSendedAt")
+    .optional({ nullable: true })
+    .isISO8601()
+    .toDate()
+    .withMessage(
+      "A data de envio do e-mail deve ser válida no formato ISO8601."
+    ),
 ];
 
 const voucherValidationErrors = (req, res, next) => {
-    const erros = validationResult(req);
-    if (!erros.isEmpty()) {
-        return res.status(400).json({
-            status: "error",
-            message: "Dados inválidos.",
-            erros: erros.array(),
-        });
-    }
-    next();
+  const erros = validationResult(req);
+  if (!erros.isEmpty()) {
+    return res.status(400).json({
+      status: "error",
+      message: "Dados inválidos.",
+      erros: erros.array(),
+    });
+  }
+  next();
 };
 
 module.exports = {
-    voucherValidationRules,
-    voucherValidationErrors,
+  voucherValidationRules,
+  voucherValidationErrors,
 };

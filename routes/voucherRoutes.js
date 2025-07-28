@@ -1,133 +1,101 @@
+// src/routes/voucherRoutes.js
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/db");
-const { authenticateToken, authorizeRoles } = require("../middleware/authMiddleware");
-const { 
-    voucherValidationRules, 
-    voucherValidationErrors 
-} = require("../validators/voucherValidador");
-const { logActivity } = require("../utils/logger");
+const pool = require("../config/db"); // Seu pool de conexão com o banco de dados
 
-// Protege todas as rotas para serem acessíveis apenas por 'admin'
+// Middlewares e Utils Genéricos
+const {
+  authenticateToken,
+  authorizeRoles,
+} = require("../middleware/authMiddleware");
+const { logActivity } = require("../utils/logger");
+const { createCrudHandlers } = require("../utils/crudHandlers"); // Importa a factory de CRUD
+const { createExportHandler } = require("../utils/exportHandlers"); // Importa a factory de Exportação
+
+// Validações Específicas de Voucher
+const {
+  voucherValidationRules,
+  voucherValidationErrors,
+} = require("../validators/voucherValidador"); // Assumindo que este arquivo existe e está correto
+
+// --- Configurações Específicas da Entidade Voucher ---
+const tableName = "vouchers";
+const idField = "id"; // Campo da chave primária
+
+// Campos que podem ser criados (camelCase)
+const creatableFields = ["coupom", "drawDate", "voucherValue"];
+
+// Campos que podem ser atualizados (camelCase)
+const updatableFields = ["coupom", "drawDate", "voucherValue"];
+
+// Campos que podem ser pesquisados/filtrados na listagem e exportação (camelCase)
+const searchableFields = ["coupom", "drawDate"]; // Você pode adicionar 'voucherValue' se fizer sentido buscar por valor
+
+// Definição das colunas para exportação (header, key, width para XLSX/PDF)
+const voucherExportColumns = [
+  { key: "id", header: "ID", width: 10 },
+  { key: "coupom", header: "Cupom", width: 25 },
+  { key: "draw_date", header: "Data do Sorteio", width: 25 },
+  { key: "voucher_value", header: "Valor do Voucher", width: 20 },
+  { key: "created_at", header: "Criado Em", width: 25 },
+  { key: "updated_at", header: "Atualizado Em", width: 25 },
+];
+
+// --- Cria handlers CRUD para Vouchers ---
+const voucherCrud = createCrudHandlers({
+  pool,
+  tableName,
+  idField,
+  creatableFields,
+  updatableFields,
+  logActivity, // A fábrica já integra a função de log
+  // Configuração de ordenação padrão, conforme seu código original
+  defaultOrderBy: "drawDate",
+  defaultOrderDirection: "ASC",
+  // Campos pesquisáveis para a função getAll genérica
+  searchableFields: searchableFields,
+  // Não há 'additionalLogic' específica para esta entidade com base no arquivo original
+});
+
+// --- Cria handler de Exportação para Vouchers ---
+const exportVouchersHandler = createExportHandler({
+  pool,
+  tableName,
+  logActivity,
+  columnsConfig: voucherExportColumns,
+  searchableFields,
+});
+
+// --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de voucher ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
-// Rota para CRIAR um novo voucher (CREATE)
+// --- Definição das Rotas ---
+// Rota para CRIAR um novo voucher
 router.post(
-    "/",
-    voucherValidationRules(),
-    voucherValidationErrors,
-    async (req, res, next) => {
-        try {
-            const { coupom, draw_date, voucher_value } = req.body;
-            const sql = `
-                INSERT INTO vouchers (coupom, draw_date, voucher_value) 
-                VALUES ($1, $2, $3) RETURNING *`;
-            const result = await pool.query(sql, [coupom, draw_date, voucher_value]);
-
-            // --- LOG DE AUDITORIA ---
-            await logActivity(
-                req.user.id, // ID do usuário logado, vindo do token JWT
-                'CREATE_VOUCHER',
-                { type: 'vouchers', id: result.rows[0].id },
-                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-            );
-            // --- FIM DO LOG ---
-
-            res.status(201).json({ status: "success", data: result.rows[0] });
-        } catch (error) {
-            next(error);
-        }
-    }
+  "/",
+  voucherValidationRules(), // Aplica as validações antes do handler genérico
+  voucherValidationErrors,
+  voucherCrud.create
 );
 
-// Rota para LER todos os vouchers (READ ALL) com JOIN para mais contexto
-router.get("/", async (req, res, next) => {
-    try {
-        const query = `
-            SELECT 
-                v.* 
-            FROM 
-                vouchers v
-            ORDER BY 
-                v.draw_date ASC`;
-        
-        const result = await pool.query(query);
-        res.status(200).json({ status: "success", data: result.rows });
-    } catch (error) {
-        next(error);
-    }
-});
+// Rota para LER todos os vouchers (com busca e paginação)
+router.get("/", voucherCrud.getAll);
 
-// Rota para LER um voucher específico por ID (READ ONE)
-router.get("/:id", async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await pool.query("SELECT * FROM vouchers WHERE id = $1", [id]);
-        if (result.rowCount === 0) {
-            return res.status(404).json({ status: "error", message: "Voucher não encontrado." });
-        }
-        res.status(200).json({ status: "success", data: result.rows[0] });
-    } catch (error) {
-        next(error);
-    }
-});
+// Rota para LER um voucher específico por ID
+router.get("/:id", voucherCrud.getById);
 
-// Rota para ATUALIZAR um voucher (UPDATE)
+// Rota para ATUALIZAR um voucher
 router.put(
-    "/:id",
-    voucherValidationRules(),
-    voucherValidationErrors,
-    async (req, res, next) => {
-        try {
-            const { id } = req.params;
-            const { coupom, draw_date, voucher_value } = req.body;
-            const sql = `
-                UPDATE vouchers SET 
-                    coupom = $1, draw_date = $2, voucher_value = $3, updated_at = NOW() 
-                WHERE id = $4 RETURNING *`;
-            const result = await pool.query(sql, [coupom, draw_date, voucher_value, id]);
-            if (result.rowCount === 0) {
-                return res.status(404).json({ status: "error", message: "Voucher não encontrado." });
-            }
-
-            // --- LOG DE AUDITORIA ---
-            await logActivity(
-                req.user.id, // ID do usuário logado, vindo do token JWT
-                'UPDATE_VOUCHER',
-                { type: 'vouchers', id },
-                { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-            );
-            // --- FIM DO LOG ---
-
-            res.status(200).json({ status: "success", data: result.rows[0] });
-        } catch (error) {
-            next(error);
-        }
-    }
+  "/:id",
+  voucherValidationRules(), // Aplica as validações antes do handler genérico
+  voucherValidationErrors,
+  voucherCrud.update
 );
 
-// Rota para DELETAR um voucher (DELETE)
-router.delete("/:id", async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await pool.query("DELETE FROM vouchers WHERE id = $1", [id]);
-        if (result.rowCount === 0) {
-            return res.status(404).json({ status: "error", message: "Voucher não encontrado." });
-        }
+// Rota para DELETAR um voucher
+router.delete("/:id", voucherCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
 
-        // --- LOG DE AUDITORIA ---
-        await logActivity(
-            req.user.id, // ID do usuário logado, vindo do token JWT
-            'UPDATE_VOUCHER',
-            { type: 'vouchers', id },
-            { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-        );
-        // --- FIM DO LOG ---
-
-        res.status(204).send();
-    } catch (error) {
-        next(error);
-    }
-});
+// Rota de Exportação (se aplicável)
+router.get("/export", exportVouchersHandler);
 
 module.exports = router;
