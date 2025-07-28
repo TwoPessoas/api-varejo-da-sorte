@@ -1,172 +1,102 @@
+// src/routes/productRoutes.js
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/db");
+const pool = require("../config/db"); // Seu pool de conexão com o banco de dados
+
+// Middlewares e Utils Genéricos
 const {
   authenticateToken,
   authorizeRoles,
 } = require("../middleware/authMiddleware");
+const { logActivity } = require("../utils/logger");
+const { createCrudHandlers } = require("../utils/crudHandlers"); // Importa a factory de CRUD
+const { createExportHandler } = require("../utils/exportHandlers"); // Importa a factory de Exportação
+
+// Validações Específicas de Produto
 const {
   productValidationRules,
   productValidationErrors,
-} = require("../validators/productValidador");
-const { logActivity } = require("../utils/logger");
+} = require("../validators/productValidador"); // Assumindo que este arquivo existe e está correto
 
-// Protege todas as rotas de Produtos para serem acessíveis apenas por 'admin'
+// --- Configurações Específicas da Entidade Produto ---
+const tableName = "products";
+const idField = "id"; // Campo da chave primária
+
+// Campos que podem ser criados (camelCase)
+const creatableFields = ["ean", "description", "brand"];
+
+// Campos que podem ser atualizados (camelCase)
+const updatableFields = ["ean", "description", "brand"];
+
+// Campos que podem ser pesquisados/filtrados na listagem e exportação (camelCase)
+// Corresponde à busca por 'description' ou 'brand' no getAll original
+const searchableFields = ["description", "brand"];
+
+// Definição das colunas para exportação (header, key, width para XLSX/PDF)
+const productExportColumns = [
+  { key: "id", header: "ID", width: 10 },
+  { key: "ean", header: "EAN", width: 20 },
+  { key: "description", header: "Descrição", width: 30 },
+  { key: "brand", header: "Marca", width: 20 },
+  { key: "created_at", header: "Criado Em", width: 25 },
+  { key: "updated_at", header: "Atualizado Em", width: 25 },
+];
+
+// --- Cria handlers CRUD para Produtos ---
+const productCrud = createCrudHandlers({
+  pool,
+  tableName,
+  idField,
+  creatableFields,
+  updatableFields,
+  logActivity,
+  // Configuração de ordenação padrão: por descrição, ascendente
+  defaultOrderBy: "description",
+  defaultOrderDirection: "ASC",
+  // Campos pesquisáveis para a função getAll genérica
+  searchableFields: searchableFields,
+  // Não há 'additionalLogic' específica necessária para produtos com base no arquivo original
+});
+
+// --- Cria handler de Exportação para Produtos ---
+const exportProductsHandler = createExportHandler({
+  pool,
+  tableName,
+  logActivity,
+  columnsConfig: productExportColumns,
+  searchableFields,
+});
+
+// --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de produto ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
-// Rota para CRIAR um novo produto (CREATE)
+// --- Definição das Rotas ---
+// Rota para CRIAR um novo produto
 router.post(
   "/",
-  productValidationRules(),
+  productValidationRules(), // Aplica as validações antes do handler genérico
   productValidationErrors,
-  async (req, res, next) => {
-    try {
-      const { ean, description, brand } = req.body;
-      const sql = `INSERT INTO products (ean, description, brand) VALUES ($1, $2, $3) RETURNING *`;
-      const result = await pool.query(sql, [ean, description, brand]);
-
-      // --- LOG DE AUDITORIA ---
-      await logActivity(
-        req.user.id, // ID do usuário logado, vindo do token JWT
-        "CREATE_PRODUCT",
-        { type: "products", id: result.rows[0].id },
-        { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-      );
-      // --- FIM DO LOG ---
-
-      res.status(201).json({ status: "success", data: result.rows[0] });
-    } catch (error) {
-      next(error);
-    }
-  }
+  productCrud.create
 );
 
-/**
- * Rota para LER todos os produtos (READ ALL) com busca e paginação.
- * Ex: /api/products?page=1&limit=10&search=termo
- */
-router.get("/", async (req, res, next) => {
-  try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const search = req.query.search || "";
-    const offset = (page - 1) * limit;
+// Rota para LER todos os produtos (com busca e paginação)
+router.get("/", productCrud.getAll);
 
-    let query = "SELECT * FROM products";
-    let countQuery = "SELECT COUNT(*) FROM products";
-    const params = [];
+// Rota para LER um produto específico por ID
+router.get("/:id", productCrud.getById);
 
-    if (search) {
-      const whereClause = ` WHERE description ILIKE $1 OR brand ILIKE $1`;
-      query += whereClause;
-      countQuery += whereClause;
-      params.push(`%${search}%`);
-    }
-
-    query += ` ORDER BY description ASC LIMIT $${params.length + 1} OFFSET $${
-      params.length + 2
-    }`;
-    params.push(limit, offset);
-
-    const result = await pool.query(query, params);
-    const countResult = await pool.query(
-      countQuery,
-      search ? [`%${search}%`] : []
-    );
-
-    const totalProducts = parseInt(countResult.rows[0].count, 10);
-    const totalPages = Math.ceil(totalProducts / limit);
-
-    res.status(200).json({
-      status: "success",
-      data: result.rows,
-      pagination: {
-        totalProducts,
-        totalPages,
-        currentPage: page,
-        limit,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Rota para LER um produto específico por ID (READ ONE)
-router.get("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query("SELECT * FROM products WHERE id = $1", [
-      id,
-    ]);
-    if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Produto não encontrado." });
-    }
-    res.status(200).json({ status: "success", data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Rota para ATUALIZAR um produto (UPDATE)
+// Rota para ATUALIZAR um produto
 router.put(
   "/:id",
-  productValidationRules(),
+  productValidationRules(), // Aplica as validações antes do handler genérico
   productValidationErrors,
-  async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const { ean, description, brand } = req.body;
-      const sql = `UPDATE products SET ean = $1, description = $2, brand = $3, updated_at = NOW() WHERE id = $4 RETURNING *`;
-      const result = await pool.query(sql, [ean, description, brand, id]);
-      if (result.rowCount === 0) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "Produto não encontrado." });
-      }
-
-      // --- LOG DE AUDITORIA ---
-      await logActivity(
-        req.user.id, // ID do usuário logado, vindo do token JWT
-        "UPDATE_PRODUCT",
-        { type: "products", id },
-        { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-      );
-      // --- FIM DO LOG ---
-
-      res.status(200).json({ status: "success", data: result.rows[0] });
-    } catch (error) {
-      next(error);
-    }
-  }
+  productCrud.update
 );
 
-// Rota para DELETAR um produto (DELETE)
-router.delete("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query("DELETE FROM products WHERE id = $1", [id]);
-    if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Produto não encontrado." });
-    }
+// Rota para DELETAR um produto
+router.delete("/:id", productCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
 
-    // --- LOG DE AUDITORIA ---
-    await logActivity(
-      req.user.id, // ID do usuário logado, vindo do token JWT
-      "DELETE_PRODUCT",
-      { type: "products", id },
-      { requestBody: req.body } // Guardando o corpo da requisição como detalhe
-    );
-    // --- FIM DO LOG ---
-
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
+// Rota de Exportação (se aplicável)
+router.get("/export", exportProductsHandler);
 
 module.exports = router;
