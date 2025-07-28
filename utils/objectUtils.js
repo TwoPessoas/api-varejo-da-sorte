@@ -1,3 +1,7 @@
+const toSnakeCase = (str) => {
+  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+};
+
 const snakeToCamel = (str) => {
   if (typeof str !== "string") {
     return str;
@@ -28,4 +32,6 @@ const convertKeysToCamelCase = (data) => {
 
 module.exports = {
   convertKeysToCamelCase,
+  toSnakeCase,
+  snakeToCamel,
 };

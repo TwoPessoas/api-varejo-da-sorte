@@ -11,13 +11,18 @@ const {
   clientValidationErrors,
 } = require("../validators/clienteValidador");
 const { logActivity } = require("../utils/logger");
+const { convertKeysToCamelCase, toSnakeCase } = require("../utils/objectUtils");
+const { stringify } = require("csv-stringify");
+const ExcelJS = require("exceljs");
+const { generateClientsPDF } = require("../utils/pdfUtils");
 
 // Protege todas as rotas para serem acessíveis apenas por 'admin'
 router.use(authenticateToken, authorizeRoles("admin"));
-const { convertKeysToCamelCase } = require("../utils/objectUtils");
+
+/*
 const { isArray, isObject } = require("util");
 
-/*const { clientMaskInfo } = require("../utils/maskInfo");
+const { clientMaskInfo } = require("../utils/maskInfo");
 
 // Rotas Públicas (não requerem autenticação)
 // Esta rota deve vir ANTES das rotas com /:id para evitar conflitos de matching
@@ -59,6 +64,178 @@ router.get(
         }
     }
 );*/
+
+router.get("/export", async (req, res, next) => {
+  try {
+    // 1. Obter e parsear os parâmetros da query
+    const { search, startDate, endDate, format = "csv" } = req.query; // Padrão 'csv'
+
+    let searchFilters = {};
+    if (search) {
+      try {
+        searchFilters = JSON.parse(search);
+      } catch (e) {
+        console.warn("Invalid search JSON provided:", search);
+        return res.status(400).json({
+          status: "error",
+          message: "Parâmetro 'search' inválido (JSON).",
+        });
+      }
+    }
+
+    let whereClause = " WHERE 1=1 ";
+    const queryParams = [];
+
+    // Adicionar filtros de busca
+    Object.keys(searchFilters).forEach((key) => {
+      const value = searchFilters[key];
+      if (value !== undefined && value !== null && value !== "") {
+        const snakeKey = toSnakeCase(key);
+        whereClause += ` AND ${snakeKey} ILIKE $${queryParams.length + 1}`;
+        queryParams.push(`%${value}%`);
+      }
+    });
+
+    // Adicionar filtro por data de criação (created_at)
+    if (startDate) {
+      // Garante que a data de início inclua o dia inteiro
+      whereClause += ` AND created_at >= $${queryParams.length + 1}`;
+      queryParams.push(new Date(startDate).toISOString()); // Converte para formato ISO para Postgress
+    }
+    if (endDate) {
+      // Garante que a data de fim inclua o dia inteiro (até o final do dia)
+      const endOfDay = new Date(endDate);
+      endOfDay.setHours(23, 59, 59, 999); // Define para o final do dia
+      whereClause += ` AND created_at <= $${queryParams.length + 1}`;
+      queryParams.push(endOfDay.toISOString());
+    }
+
+    // Montar a query SQL completa
+    const sql = `SELECT * FROM clients ${whereClause} ORDER BY name ASC`;
+
+    // 2. Buscar os dados do banco de dados
+    const result = await pool.query(sql, queryParams);
+    const clientsToExport = result.rows;
+
+    // --- LOG DE AUDITORIA ---
+    await logActivity(
+      req.user.id,
+      "EXPORT_CLIENTS",
+      { type: "clients_export", filters: req.query },
+      { exportedCount: clientsToExport.length }
+    );
+    // --- FIM DO LOG ---
+
+    // Definir os cabeçalhos das colunas para CSV e XLSX
+    const columns = [
+      { key: "id", header: "ID", width: 10 },
+      { key: "name", header: "Nome", width: 30 },
+      { key: "cpf", header: "CPF", width: 20 },
+      { key: "birthday", header: "Data de Aniversário", width: 20 },
+      { key: "cel", header: "Celular", width: 20 },
+      { key: "email", header: "Email", width: 30 },
+      { key: "is_pre_register", header: "Pré-Cadastro", width: 15 },
+      { key: "is_mega_winner", header: "Mega Ganhador", width: 15 },
+      { key: "email_sended_at", header: "Email Enviado Em", width: 25 },
+      { key: "created_at", header: "Criado Em", width: 25 },
+      { key: "updated_at", header: "Atualizado Em", width: 25 },
+    ];
+
+    // 3. Gerar o arquivo no formato solicitado
+    if (format === "csv") {
+      stringify(
+        clientsToExport,
+        {
+          header: true,
+          columns: columns.map((col) => ({ key: col.key, header: col.header })), // Mapeia para o formato esperado pelo stringify
+          cast: {
+            date: (value) => (value ? new Date(value).toISOString() : ""), // Converte datas para string ISO
+            boolean: (value) => (value ? "Sim" : "Não"), // Converte booleanos para 'Sim'/'Não'
+          },
+        },
+        (err, output) => {
+          if (err) {
+            console.error("Error generating CSV:", err);
+            return next(err);
+          }
+
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader(
+            "Content-Disposition",
+            'attachment; filename="clientes_export.csv"'
+          );
+          res.status(200).send(output);
+        }
+      );
+    } else if (format === "xlsx") {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Clientes");
+
+      // Define as colunas do worksheet (com cabeçalhos e chaves)
+      worksheet.columns = columns; // ExcelJS aceita diretamente a estrutura de columns
+
+      // Adiciona os dados das linhas
+      // É bom pré-processar os dados para que as datas e booleanos sejam formatados
+      const mappedClients = clientsToExport.map((client) => {
+        return {
+          ...client,
+          // Formata datas para string legível
+          birthday: client.birthday
+            ? new Date(client.birthday).toLocaleDateString("pt-BR")
+            : "",
+          created_at: client.created_at
+            ? new Date(client.created_at).toLocaleString("pt-BR")
+            : "",
+          updated_at: client.updated_at
+            ? new Date(client.updated_at).toLocaleString("pt-BR")
+            : "",
+          // Formata booleanos
+          is_pre_register: client.is_pre_register ? "Sim" : "Não",
+          is_mega_winner: client.is_mega_winner ? "Sim" : "Não",
+          // O token, se incluído nas columns, também pode ser formatado ou ocultado
+          // token: client.token ? '***' : ''
+        };
+      });
+
+      worksheet.addRows(mappedClients);
+
+      // Gerar o buffer do arquivo XLSX
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="clientes_export.xlsx"'
+      );
+      res.status(200).send(buffer);
+    } else if (format === "pdf") {
+      // Gerar PDF usando pdfmake
+      const pdfDoc = generateClientsPDF(clientsToExport, searchFilters, {
+        startDate,
+        endDate,
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="clientes_export.pdf"'
+      );
+
+      // Pipe o documento PDF diretamente para a resposta
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } else {
+      res
+        .status(400)
+        .json({ status: "error", message: "Formato de exportação inválido." });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Rota para CRIAR um novo client (CREATE)
 // Apenas 'admin' pode criar.
@@ -119,38 +296,39 @@ router.get("/", async (req, res, next) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
-    const search = JSON.parse(req.query.search) || {};
+    const searchParam = req.query.search ? JSON.parse(req.query.search) : {};
     const offset = (page - 1) * limit;
 
     let query = "SELECT * FROM clients";
     let countQuery = "SELECT COUNT(*) FROM clients";
     let where = " WHERE 1=1 ";
     const params = [];
-    Object.keys(search).forEach((key) => {
-      if (
-        search[key] !== undefined &&
-        search[key] !== null &&
-        search[key] !== ""
-      ) {
-        const snakeKey = key.replace(/([A-Z])/g, "_$1").toLowerCase();
-        const condition = `${snakeKey} ILIKE $${params.length + 1}`;
-        where += ` AND ${condition}`;
-        params.push(`%${search[key]}%`);
+
+    // Aplicar filtros da busca JSON
+    Object.keys(searchParam).forEach((key) => {
+      const value = searchParam[key];
+      if (value !== undefined && value !== null && value !== "") {
+        const snakeKey = toSnakeCase(key); // Converte para snake_case
+        // Usa ILIKE para busca case-insensitive e % para correspondência parcial
+        where += ` AND ${snakeKey} ILIKE $${params.length + 1}`;
+        params.push(`%${value}%`);
       }
     });
 
+    // Construir a query de contagem
     countQuery += where;
     const countResult = await pool.query(countQuery, params);
+    const totalEntities = parseInt(countResult.rows[0].count, 10);
+    const totalPages = Math.ceil(totalEntities / limit);
 
+    // Adicionar ordenação, limite e offset à query principal
     query += where;
     query += ` ORDER BY name ASC LIMIT $${params.length + 1} OFFSET $${
       params.length + 2
     }`;
-    params.push(limit, offset);
-    const result = await pool.query(query, params);
+    params.push(limit, offset); // Adiciona limit e offset aos parâmetros
 
-    const totalEntities = parseInt(countResult.rows[0].count, 10);
-    const totalPages = Math.ceil(totalEntities / limit);
+    const result = await pool.query(query, params);
 
     res.status(200).json({
       status: "success",
@@ -197,7 +375,7 @@ router.put(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { name, cpf, birthday, cel, email } = req.body;
+      const { name, cpf, birthday, cel, email, isPreRegister } = req.body;
 
       // MUDANÇA: A cláusula `updatedAt` é definida explicitamente
       const sql = `UPDATE clients SET 
@@ -205,10 +383,9 @@ router.put(
                             cel = $5, email = $6, updated_at = NOW()
                          WHERE id = $7
                          RETURNING *`;
-      const params = [false, name, cpf, birthday, cel, email, id];
+      const params = [isPreRegister, name, cpf, birthday, cel, email, id];
 
       const result = await pool.query(sql, params);
-      // MUDANÇA: de affectedRows para rowCount
       if (result.rowCount === 0) {
         return res
           .status(404)
@@ -226,13 +403,11 @@ router.put(
 
       const clientFromDb = result.rows[0];
       const clientForFrontend = convertKeysToCamelCase(clientFromDb);
-      res
-        .status(200)
-        .json({
-          status: "success",
-          message: "Cliente atualizado com sucesso.",
-          data: clientForFrontend,
-        });
+      res.status(200).json({
+        status: "success",
+        message: "Cliente atualizado com sucesso.",
+        data: clientForFrontend,
+      });
     } catch (error) {
       next(error);
     }
