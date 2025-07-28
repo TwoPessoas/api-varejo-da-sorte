@@ -48,7 +48,7 @@ const buildQuery = (options) => {
     const value = searchFilters[field];
     if (value !== undefined && value !== null && value !== "") {
       const snakeKey = toSnakeCase(field);
-      whereClause += ` AND ${snakeKey} ILIKE $${paramIndex}`;
+      whereClause += ` AND ${snakeKey}::text ILIKE $${paramIndex}`;
       params.push(`%${value}%`);
       paramIndex++;
     }

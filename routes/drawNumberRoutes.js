@@ -129,10 +129,7 @@ const getDrawNumberById = async (req, res, next) => {
     }
     res
       .status(200)
-      .json({
-        status: "success",
-        data: convertKeysToCamelCase(result.rows[0]),
-      });
+      .json(convertKeysToCamelCase(result.rows[0]));
   } catch (error) {
     next(error);
   }
@@ -162,6 +159,9 @@ const exportDrawNumbersHandler = createExportHandler({
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de draw number ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
+// Rota de Exportação genérica
+router.get("/export", exportDrawNumbersHandler);
+
 // --- Definição das Rotas ---
 // Rota GET ALL customizada para incluir dados de JOIN
 router.get("/", getAllDrawNumbers);
@@ -170,23 +170,20 @@ router.get("/", getAllDrawNumbers);
 router.get("/:id", getDrawNumberById);
 
 // Rotas CREATE, UPDATE e DELETE usam os handlers genéricos
-router.post(
+/*router.post(
   "/",
   drawNumberValidationRules, // Aplica as validações antes do handler genérico
   drawNumberValidationErrors,
   drawNumberCrud.create
-);
+);*/
 
-router.put(
+/*router.put(
   "/:id",
   drawNumberValidationRules, // Aplica as validações antes do handler genérico
   drawNumberValidationErrors,
   drawNumberCrud.update
-);
+);*/
 
 router.delete("/:id", drawNumberCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
-
-// Rota de Exportação genérica
-router.get("/export", exportDrawNumbersHandler);
 
 module.exports = router;

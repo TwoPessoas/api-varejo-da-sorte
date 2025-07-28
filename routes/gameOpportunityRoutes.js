@@ -162,13 +162,16 @@ const exportGameOpportunitiesHandler = createExportHandler({
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de oportunidade de jogo ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
+// Rota de Exportação genérica
+router.get("/export", exportGameOpportunitiesHandler);
+
 // --- Definição das Rotas ---
 // Rota GET ALL customizada para incluir dados de JOIN
 router.get("/", getAllGameOpportunities);
 
 // Rota GET BY ID customizada para incluir dados de JOIN
 router.get("/:id", getGameOpportunityById);
-
+/*
 // Rotas CREATE, UPDATE e DELETE usam os handlers genéricos
 router.post(
   "/",
@@ -182,11 +185,8 @@ router.put(
   gameOpportunityValidationRules, // Aplica as validações antes do handler genérico
   gameOpportunityValidationErrors,
   gameOpportunityCrud.update
-);
+);*/
 
 router.delete("/:id", gameOpportunityCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
-
-// Rota de Exportação genérica
-router.get("/export", exportGameOpportunitiesHandler);
 
 module.exports = router;
