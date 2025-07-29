@@ -71,6 +71,9 @@ const exportProductsHandler = createExportHandler({
 router.use(authenticateToken, authorizeRoles("admin"));
 
 // --- Definição das Rotas ---
+// Rota de Exportação (se aplicável)
+router.get("/export", exportProductsHandler);
+
 // Rota para CRIAR um novo produto
 router.post(
   "/",
@@ -95,8 +98,5 @@ router.put(
 
 // Rota para DELETAR um produto
 router.delete("/:id", productCrud.remove); // Usa 'remove' conforme definido em createCrudHandlers
-
-// Rota de Exportação (se aplicável)
-router.get("/export", exportProductsHandler);
 
 module.exports = router;

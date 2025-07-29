@@ -430,6 +430,8 @@ const exportInvoicesHandler = createExportHandler({
 // --- Aplicação de Middlewares ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
+router.get("/export", exportInvoicesHandler);
+
 // --- Definição das Rotas ---
 router.get("/", getAllInvoicesWithClientName);
 router.post(
@@ -441,6 +443,5 @@ router.post(
 router.get("/:id", invoiceCrud.getById);
 //router.put('/:id', invoiceValidationRules, invoiceValidationErrors, invoiceCrud.update);
 router.delete("/:id", invoiceCrud.remove);
-router.get("/export", exportInvoicesHandler);
 
 module.exports = router;

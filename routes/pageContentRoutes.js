@@ -200,6 +200,9 @@ const exportPageContentsHandler = createExportHandler({
 
 // --- Definição das Rotas Administrativas ---
 
+// Rota de Exportação (opcional, mas boa para consistência)
+router.get("/export", exportPageContentsHandler);
+
 // Rota para CRIAR uma nova página
 router.post(
   "/",
@@ -224,8 +227,5 @@ router.put(
 
 // Rota para DELETAR uma página
 router.delete("/:id", pageContentCrud.remove);
-
-// Rota de Exportação (opcional, mas boa para consistência)
-router.get("/export", exportPageContentsHandler);
 
 module.exports = router;
