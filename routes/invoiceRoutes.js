@@ -121,15 +121,12 @@ const criarConsultaProdutosPorEan = async (eans) => {
     if (!eans || eans.length === 0) {
         return [];
     }
-    console.log(`[Invoice] Consultando produtos por EANs:`, eans);
 
     // 2. Gera os placeholders ($1, $2, $3, ...) dinamicamente
     // Para cada item no array, criamos uma string '$' seguida do seu índice + 1.
     const placeholders = eans.map((_, index) => `$${index + 1}`).join(', ');
     // Para [57530, 65573, 98765], o resultado será: "$1, $2, $3"
 
-    console.log(`[Invoice] Placeholders gerados:`, placeholders);
-    
     try{
     // 3. Monta a string final da consulta SQL
     const sqlQuery = `
@@ -143,8 +140,6 @@ const criarConsultaProdutosPorEan = async (eans) => {
         WHERE
             ean IN(${placeholders});
     `;
-
-    console.log(`[Invoice] Consulta SQL gerada:`, sqlQuery);
 
     const result = await pool.query(sqlQuery.trim(), eans);
 
