@@ -99,56 +99,97 @@ const hasPartnerCodeInInvoice = (json) => {
   return false; // Mantendo a lógica original
 };
 
-const getProductsInInvoice = (json) => {
+const getProductsInInvoice = async (json) => {
   const products = json.detalhe_produto;
+  
   if (!Array.isArray(products) || products.length === 0) {
     return [];
   }
-  return products;
+  
+  const allEans = products.map(product => product.ean);
+  
+  // 2. Cria um Set para remover as duplicatas e depois converte de volta para array
+  const uniqueEans = [...new Set(allEans)];
+  // 3. Retorna a consulta dinâmica
+  return await criarConsultaProdutosPorEan(uniqueEans);
+};
+
+// Função para gerar a consulta dinâmica e os valores
+const criarConsultaProdutosPorEan = async (eans) => {
+    // Caso a lista de EANs esteja vazia, não há o que consultar.
+    // Retornar uma consulta que não devolve nada ou um objeto vazio para ser tratado.
+    if (!eans || eans.length === 0) {
+        return [];
+    }
+    console.log(`[Invoice] Consultando produtos por EANs:`, eans);
+
+    // 2. Gera os placeholders ($1, $2, $3, ...) dinamicamente
+    // Para cada item no array, criamos uma string '$' seguida do seu índice + 1.
+    const placeholders = eans.map((_, index) => `$${index + 1}`).join(', ');
+    // Para [57530, 65573, 98765], o resultado será: "$1, $2, $3"
+
+    console.log(`[Invoice] Placeholders gerados:`, placeholders);
+    
+    try{
+    // 3. Monta a string final da consulta SQL
+    const sqlQuery = `
+        SELECT
+            id,
+            ean,
+            description,
+            brand
+        FROM
+            public.products
+        WHERE
+            ean IN(${placeholders});
+    `;
+
+    console.log(`[Invoice] Consulta SQL gerada:`, sqlQuery);
+
+    const result = await pool.query(sqlQuery.trim(), eans);
+
+    return result.rows.map(convertKeysToCamelCase);
+    } catch (error) {
+        console.error(`[Invoice] Erro ao consultar produtos por EANs:`, error.message);
+        throw new Error(`Erro ao consultar produtos: ${error.message}`);
+    }
 };
 
 const getInfoInvoiceFromExternalApi = async (fiscalCode) => {
   try {
-    /*const response = await axios.get(`${EXTERNAL_API_URL}?chv_acs=${fiscalCode}`, {
-            headers: {
-                'Authorization': `Basic ${EXTERNAL_API_AUTH}`
-            }
-        });
+    const response = await axios.get(
+      `${EXTERNAL_API_URL}?chv_acs=${fiscalCode}`,
+      {
+        headers: {
+          Authorization: `Basic ${EXTERNAL_API_AUTH}`,
+        },
+      }
+    );
 
-        if (response.status !== 200) {
-            throw new Error(`API externa retornou status ${response.status}: ${response.data}`);
-        }
+    if (response.status !== 200) {
+      throw new Error(
+        `API externa retornou status ${response.status}: ${response.data}`
+      );
+    }
 
-        const jsonObject = response.data;
-        const bandeira = jsonObject.bandeira;
-        const hasCreditcard = hasCreditcardInInvoice(bandeira);
-        const hasPartnerCode = hasPartnerCodeInInvoice(jsonObject);
-        const productsInInvoice = getProductsInInvoice(jsonObject);
-        const hasItem = productsInInvoice.length > 0;
+    const jsonObject = response.data;
+    const bandeira = jsonObject.bandeira;
+    const hasCreditcard = hasCreditcardInInvoice(bandeira);
+    const hasPartnerCode = hasPartnerCodeInInvoice(jsonObject);
+    const productsInInvoice = await getProductsInInvoice(jsonObject);
+    const hasItem = productsInInvoice.length > 0;
 
-        return {
-            invoceValue: parseFloat(jsonObject.valor_total),
-            hasItem: hasItem,
-            hasCreditcard: hasCreditcard,
-            hasPartnerCode: hasPartnerCode,
-            pdv: parseInt(jsonObject.num_pdv),
-            store: parseInt(jsonObject.num_loja),
-            numCoupon: parseInt(jsonObject.num_cupom),
-            cnpj: jsonObject.cnpj.toString(),
-            creditcard: JSON.stringify(bandeira),
-        };*/
-
-    //mock de dados para simulação
     return {
-      invoceValue: Math.random() * 200 + 1,
-      hasItem: false,
-      hasCreditcard: false,
-      hasPartnerCode: false,
-      pdv: 1,
-      store: 2,
-      numCoupon: 3,
-      cnpj: "12345678901234",
-      creditcard: "Visa",
+      invoceValue: parseFloat(jsonObject.valor_total),
+      hasItem: hasItem,
+      hasCreditcard: hasCreditcard,
+      hasPartnerCode: hasPartnerCode,
+      pdv: parseInt(jsonObject.num_pdv),
+      store: parseInt(jsonObject.num_loja),
+      numCoupon: parseInt(jsonObject.num_cupom),
+      cnpj: jsonObject.cnpj.toString(),
+      creditcard: JSON.stringify(bandeira),
+      productsInInvoice: productsInInvoice, // Inclui os produtos na resposta
     };
   } catch (error) {
     console.error(
@@ -281,8 +322,10 @@ const createInvoiceWithTransaction = async (req, res, next) => {
     /*console.log(
       `[Invoice Create] Consultando API externa para fiscalCode: ${fiscalCode}`
     );*/
+
     const invoiceExternalData = await getInfoInvoiceFromExternalApi(fiscalCode);
-    //console.log(`[Invoice Create] invoiceExternalData:`, invoiceExternalData);
+    const productsInInvoice = invoiceExternalData.productsInInvoice;
+    delete invoiceExternalData.productsInInvoice; // Remove produtos para não duplicar no insert
 
     // 2. Calcular total de chances no jogo
     const totalGameChances = getTotalGameChances(invoiceExternalData);
@@ -369,7 +412,7 @@ const createInvoiceWithTransaction = async (req, res, next) => {
       {
         requestBody: req.body,
         totalGameChances,
-        invoiceValue: invoiceExternalData.invoceValue,
+        invoice: invoiceExternalData.invoceValue,
       }
     );
 
@@ -381,7 +424,7 @@ const createInvoiceWithTransaction = async (req, res, next) => {
       invoiceGameChances: totalGameChances,
       drawNumbers: drawNumbers.map(convertKeysToCamelCase),
       gameOpportunities: gameOpportunities.map(convertKeysToCamelCase),
-      // products: [], // Você pode implementar a busca de produtos se necessário
+      products: productsInInvoice.map(convertKeysToCamelCase),
     };
 
     /*console.log(
