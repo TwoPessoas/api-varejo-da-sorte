@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db"); // Seu pool de conexão com o banco de dados
-const crypto = require("crypto"); // Ainda necessário para a lógica específica de geração de token do cliente
+const crypto = require("crypto");
 
 // Middlewares e Utils Genéricos
 const {
@@ -18,6 +18,8 @@ const {
   clientValidationRules,
   clientValidationErrors,
 } = require("../validators/clienteValidador");
+const { clientMaskInfo } = require("../utils/maskInfo");
+const { convertKeysToCamelCase } = require("../utils/objectUtils");
 
 // --- Configurações Específicas da Entidade Cliente ---
 const tableName = "clients";
@@ -60,7 +62,6 @@ const clientExportColumns = [
   { key: "email_sended_at", header: "Email Enviado Em", width: 25 },
   { key: "created_at", header: "Criado Em", width: 25 },
   { key: "updated_at", header: "Atualizado Em", width: 25 },
-  // { key: 'token', header: 'Token', width: 40 }, // CUIDADO: Reconsidere exportar dados sensíveis como tokens
 ];
 
 // --- Criação dos Handlers CRUD para Clientes ---
@@ -91,6 +92,41 @@ const exportClientsHandler = createExportHandler({
   columnsConfig: clientExportColumns,
   searchableFields,
 });
+
+const getMe = async (req, res, next) => {
+  try {
+    res.status(200).json({
+      status: "success",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getClientWebByToken = async (req, res, next) => {
+  try {
+    const token = req.user.userToken;
+    const { rows } = await pool.query(
+      `SELECT * FROM clients WHERE token = $1`,
+      [token]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: `Cliente não encontrado.`,
+      });
+    }
+
+    var clientTO = clientMaskInfo(rows[0]);
+    res.status(200).json(convertKeysToCamelCase(clientTO));
+  } catch (error) {
+    next(error);
+  }
+};
+
+router.use(authenticateToken, authorizeRoles("web"));
+router.get("/me", getMe);
+router.get("/web", getClientWebByToken);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de cliente ---
 router.use(authenticateToken, authorizeRoles("admin"));

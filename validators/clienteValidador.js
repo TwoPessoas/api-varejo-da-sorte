@@ -1,33 +1,7 @@
 const { body, param, validationResult } = require("express-validator");
 const { subYears, isDate, parseISO } = require("date-fns");
 const pool = require("../config/db"); // Importa o pool de conexões
-
-/**
- * Função auxiliar para validar um CPF.
- * Realiza a verificação dos dígitos verificadores.
- * @param {string} cpf - O CPF a ser validado.
- * @returns {boolean} - True se o CPF for válido, false caso contrário.
- */
-const isValidCPF = (cpf) => {
-  if (typeof cpf !== "string") return false;
-  cpf = cpf.replace(/[^\d]+/g, "");
-  if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
-
-  const digits = cpf.split("").map((el) => +el);
-  const remainder = (value) => ((value * 10) % 11) % 10;
-
-  let total = digits
-    .slice(0, 9)
-    .reduce((value, el, idx) => value + el * (10 - idx), 0);
-  if (remainder(total) !== digits[9]) return false;
-
-  total = digits
-    .slice(0, 10)
-    .reduce((soma, el, idx) => soma + el * (11 - idx), 0);
-  if (remainder(total) !== digits[10]) return false;
-
-  return true;
-};
+const { isValidCPF } = require("../utils/stringUtils"); // Importa a função de validação de CPF
 
 // Array com as regras de validação para o corpo da requisição de Cliente
 const clientValidationRules = [

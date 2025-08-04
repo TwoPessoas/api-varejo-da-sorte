@@ -314,19 +314,12 @@ const createInvoiceWithTransaction = async (req, res, next) => {
     }
 
     // 1. Obter informações da API externa
-    /*console.log(
-      `[Invoice Create] Consultando API externa para fiscalCode: ${fiscalCode}`
-    );*/
-
     const invoiceExternalData = await getInfoInvoiceFromExternalApi(fiscalCode);
     const productsInInvoice = invoiceExternalData.productsInInvoice;
     delete invoiceExternalData.productsInInvoice; // Remove produtos para não duplicar no insert
 
     // 2. Calcular total de chances no jogo
     const totalGameChances = getTotalGameChances(invoiceExternalData);
-    /*console.log(
-      `[Invoice Create] Total de chances calculadas: ${totalGameChances}`
-    );*/
 
     // 3. Preparar dados completos da fatura
     const completeInvoiceData = {
@@ -349,8 +342,6 @@ const createInvoiceWithTransaction = async (req, res, next) => {
     const invoiceSql = `INSERT INTO ${tableName} (${invoiceFields}) VALUES (${invoiceValues}) RETURNING *`;
     const invoiceResult = await client.query(invoiceSql, invoiceParams);
     const createdInvoice = invoiceResult.rows[0];
-
-    //console.log(`[Invoice Create] Fatura criada com ID: ${createdInvoice.id}`);
 
     // 5. Criar oportunidades de jogo e números da sorte
     const gameOpportunities = [];
@@ -421,10 +412,6 @@ const createInvoiceWithTransaction = async (req, res, next) => {
       gameOpportunities: gameOpportunities.map(convertKeysToCamelCase),
       products: productsInInvoice.map(convertKeysToCamelCase),
     };
-
-    /*console.log(
-      `[Invoice Create] Processo concluído com sucesso para fatura ID: ${createdInvoice.id}`
-    );*/
 
     res.status(201).json({
       status: "success",

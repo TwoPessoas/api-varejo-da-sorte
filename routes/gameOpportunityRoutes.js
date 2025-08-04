@@ -14,11 +14,13 @@ const { createExportHandler } = require("../utils/exportHandlers"); // Importa a
 const { toSnakeCase, convertKeysToCamelCase } = require("../utils/objectUtils"); // Para camelCase
 const { buildQuery } = require("../utils/queryBuilder"); // Para reutilizar na custom getAll/getById
 
+/*
 // Validações Específicas de GameOpportunity
 const {
   gameOpportunityValidationRules,
   gameOpportunityValidationErrors,
 } = require("../validators/gameOpportunityValidador"); // Assumindo que este arquivo existe e está correto
+*/
 
 // --- Configurações Específicas da Entidade GameOpportunity ---
 const tableName = "game_opportunities";
