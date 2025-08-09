@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autorização de Segurança</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #ddd;
+        }
+        h1 {
+            color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Olá, <%NAME%>!</h1>
+        <p>
+            Este é um e-mail para confirmar uma nova autorização de segurança em sua conta.
+        </p>
+        <p>
+            Existiu uma solicitação para acessar os seus dados da campanha <strong><%CAMPAIGN_NAME%></strong> através de outro dispositivo.
+        </p>
+        <p>
+            Acesse o link abaixo para confirma a mudança de dispositivo. Caso não reconheça essa tentativa de acessar a campanha, favor ignorar esse e-mail
+        </p>
+        <p><a href="<%LINK_AUTHORIZATION%>"><%LINK_AUTHORIZATION%></a></p>
+        
+        <br>
+        <p>Atenciosamente,</p>
+        <p><strong>Equipe de Segurança</strong></p>
+    </div>
+</body>
+</html>

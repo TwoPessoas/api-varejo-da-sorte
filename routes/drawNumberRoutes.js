@@ -14,12 +14,6 @@ const { createExportHandler } = require("../utils/exportHandlers"); // Importa a
 const { toSnakeCase, convertKeysToCamelCase } = require("../utils/objectUtils"); // Para camelCase
 const { buildQuery } = require("../utils/queryBuilder"); // Para reutilizar na custom getAll/getById
 
-// Validações Específicas de DrawNumber
-const {
-  drawNumberValidationRules,
-  drawNumberValidationErrors,
-} = require("../validators/drawNumberValidador"); // Assumindo que este arquivo existe e está correto
-
 // --- Configurações Específicas da Entidade DrawNumber ---
 const tableName = "draw_numbers";
 const idField = "id"; // Campo da chave primária
@@ -127,9 +121,39 @@ const getDrawNumberById = async (req, res, next) => {
         message: "Número de sorteio não encontrado.",
       });
     }
-    res
-      .status(200)
-      .json(convertKeysToCamelCase(result.rows[0]));
+    res.status(200).json(convertKeysToCamelCase(result.rows[0]));
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getAllDrawNumbersByToken = async (req, res, next) => {
+  try {
+    const token = req.user.userToken;
+
+    let query = `
+      SELECT 
+        dn.*, 
+        i.fiscal_code
+      FROM draw_numbers dn
+      JOIN invoices i ON dn.invoice_id = i.id
+      JOIN clients c ON i.client_id = c.id
+      WHERE c.token = $1
+      ORDER BY dn.updated_at desc, dn.id DESC`;
+
+    const result = await pool.query(query, [token]);
+
+    res.status(200).json({
+      status: "success",
+      data: result.rows.map((el) => {
+        return {
+          id: el.id,
+          number: el.number,
+          fiscalCode: el.fiscal_code,
+          updatedAt: el.updated_at,
+        };
+      }),
+    });
   } catch (error) {
     next(error);
   }
@@ -155,6 +179,9 @@ const exportDrawNumbersHandler = createExportHandler({
   columnsConfig: drawNumberExportColumns,
   searchableFields,
 });
+
+router.use(authenticateToken, authorizeRoles("web"));
+router.get("/list", getAllDrawNumbersByToken);
 
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de draw number ---
 router.use(authenticateToken, authorizeRoles("admin"));

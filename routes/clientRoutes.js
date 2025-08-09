@@ -62,6 +62,7 @@ const clientExportColumns = [
   { key: "email_sended_at", header: "Email Enviado Em", width: 25 },
   { key: "created_at", header: "Criado Em", width: 25 },
   { key: "updated_at", header: "Atualizado Em", width: 25 },
+  { key: "updated_security_token_at", header: "Token de segurança atualizado em", width: 25 },
 ];
 
 // --- Criação dos Handlers CRUD para Clientes ---
@@ -124,9 +125,71 @@ const getClientWebByToken = async (req, res, next) => {
   }
 };
 
+const getClientWebSummary = async (req, res, next) => {
+  try {
+    const token = req.user.userToken;
+
+    const response = {
+      opportunitiesTotal: 0,
+      opportunitiesNotUsed: 0,
+      drawNumbersTotal: 0,
+      invoicesTotal: 0,
+    };
+
+    /* Oportunidades de Jogo */
+    let result = await pool.query(
+      `SELECT go.used_at
+       FROM game_opportunities go
+       JOIN invoices i ON i.id = go.invoice_id
+       JOIN clients c ON i.client_id = c.id
+       WHERE c.token = $1`,
+      [token]
+    );
+
+    if (result.rows.length > 0) {
+      const total = result.rows.length;
+      const notUsed = result.rows.filter((el) => el.used_at === null);
+      response.opportunitiesTotal = total;
+      response.opportunitiesNotUsed = notUsed.length;
+    }
+
+    /* Numeros da Sorte */
+    result = await pool.query(
+      `SELECT count(d.id) total
+       FROM draw_numbers d
+       JOIN invoices i ON d.invoice_id = i.id
+       JOIN clients c ON i.client_id = c.id
+       WHERE c.token = $1`,
+      [token]
+    );
+
+    if (result.rows.length > 0) {
+      response.drawNumbersTotal = result.rows[0]["total"];
+    }
+
+    /* Notas Fiscais */
+    result = await pool.query(
+      `SELECT count(i.id) total
+       FROM invoices i
+       JOIN clients c ON i.client_id = c.id
+       WHERE c.token = $1`,
+      [token]
+    );
+
+    if (result.rows.length > 0) {
+      response.invoicesTotal = result.rows[0]["total"];
+    }
+
+    res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
 router.use(authenticateToken, authorizeRoles("web"));
 router.get("/me", getMe);
 router.get("/web", getClientWebByToken);
+router.get("/summary", getClientWebSummary);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de cliente ---
 router.use(authenticateToken, authorizeRoles("admin"));

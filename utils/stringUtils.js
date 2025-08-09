@@ -58,4 +58,38 @@ function isValidCPF(cpf) {
   return true;
 }
 
-module.exports = { slugify, isValidCPF };
+/**
+ * Converte um array de strings em uma única string codificada em Base64.
+ * @param {string[]} dataArray - O array de strings a ser codificado.
+ * @param {string} delimiter - O delimitador para unir os elementos do array.
+ * @returns {string} A string codificada em Base64.
+ */
+function encodeArrayToBase64(dataArray, delimiter = '%|%') {
+    // 1. Junta o array em uma única string com o delimitador
+    const joinedString = dataArray.join(delimiter);
+    console.log(`String unida: "${joinedString}"`);
+
+    // 2. Converte a string para Base64
+    const base64String = Buffer.from(joinedString).toString('base64');
+    console.log(`String em Base64: "${base64String}"`);
+
+    return base64String;
+}
+
+/**
+ * Decodifica uma string Base64 e a divide em um array.
+ * @param {string} base64String - A string codificada em Base64.
+ * @param {string} delimiter - O delimitador usado para dividir a string.
+ * @returns {string[]} O array de strings original.
+ */
+function decodeBase64ToArray(base64String, delimiter = '%|%') {
+    // 1. Decodifica a string de Base64 para a string original (UTF-8)
+    const decodedString = Buffer.from(base64String, 'base64').toString('utf8');
+
+    // 2. Divide a string de volta em um array usando o delimitador
+    const originalArray = decodedString.split(delimiter);
+
+    return originalArray;
+}
+
+module.exports = { slugify, isValidCPF, encodeArrayToBase64, decodeBase64ToArray };

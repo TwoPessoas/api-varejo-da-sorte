@@ -51,6 +51,39 @@ const gameOpportunityExportColumns = [
   { key: "client_name", header: "Nome Cliente", width: 30 },
 ];
 
+const getAllGameOpportunitiesByToken = async (req, res, next) => {
+  try {
+    const token = req.user.userToken;
+
+    let query = `
+      SELECT 
+        go.*, 
+        i.fiscal_code
+      FROM game_opportunities go
+      JOIN invoices i ON go.invoice_id = i.id
+      JOIN clients c ON i.client_id = c.id
+      WHERE c.token = $1
+      ORDER BY go.created_at desc, go.id DESC`;
+
+    const result = await pool.query(query, [token]);
+
+    res.status(200).json({
+      status: "success",
+      data: result.rows.map((el) => {
+        return {
+          id: el.id,
+          gift: el.gift,
+	        usedAt: el.used_at,
+          fiscalCode: el.fiscal_code,
+          createdAt: el.created_at,
+        };
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // --- Função getAll customizada para GameOpportunities (com JOINs para fiscal_code e client_name) ---
 const getAllGameOpportunities = async (req, res, next) => {
   try {
@@ -160,6 +193,9 @@ const exportGameOpportunitiesHandler = createExportHandler({
   columnsConfig: gameOpportunityExportColumns,
   searchableFields,
 });
+
+router.use(authenticateToken, authorizeRoles("web"));
+router.get("/list", getAllGameOpportunitiesByToken);
 
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de oportunidade de jogo ---
 router.use(authenticateToken, authorizeRoles("admin"));
