@@ -191,101 +191,54 @@ router.post(
     try {
       const { cpf, securityToken } = req.body;
 
-      if (!cpf || !securityToken) {
-        return res
-          .status(412)
-          .json({ status: "error", message: "Dados incompletos" });
-      }
+      // --- 1. OPERAÇÃO ATÔMICA DE UPSERT E BUSCA ---
+      // Primeiro, tenta inserir o cliente. Se já existir um com o mesmo CPF, não faz nada.
+      // Isso previne race conditions e prepara o terreno de forma atômica.
+      const upsertSql = `
+        INSERT INTO clients (is_pre_register, cpf, security_token, created_at, updated_at)
+        VALUES (true, $1, $2, now(), now())
+        ON CONFLICT (cpf) DO NOTHING;
+      `;
+      await pool.query(upsertSql, [cpf, securityToken]);
 
-      let sql = `SELECT * FROM clients WHERE cpf = $1`;
-      const params = [cpf];
+      // Agora, com certeza o cliente existe (seja o que acabamos de inserir ou um pré-existente).
+      // Buscamos os dados dele em uma única query garantida.
+      const selectSql = `SELECT * FROM clients WHERE cpf = $1`;
+      const userResult = await pool.query(selectSql, [cpf]);
 
-      let result = await pool.query(sql, params);
-      params.push(securityToken);
-
-      //Existe o cliente com o CPF fornecido?
-      if (result.rows.length === 0) {
-        const newToken = crypto.randomBytes(32).toString("hex");
-        params.push(newToken);
-
-        // Insere o novo cliente com o token gerado
-        const insertSql = `INSERT INTO 
-                            clients (is_pre_register, cpf, security_token, token, created_at, updated_at) 
-                            VALUES(true, $1, $2, $3, now(), now())
-                            RETURNING *`;
-
-        result = await pool.query(insertSql, params);
-      }
-
-      const user = result.rows[0];
-      if (!user) {
-        return res
-          .status(401)
-          .json({ status: "error", message: "Credenciais inválidas." });
-      }
-
-      // Se o security_token for nulo, atualiza o banco de dados
-      if (!user.security_token) {
-        const updateSql =
-          "UPDATE clients SET security_token = $1 WHERE id = $2";
-
-        await pool.query(updateSql, [securityToken, user.id]);
-      }
-      //Verifica se o security_token do banco é igual ao que veio no POST
-      else if (user.security_token !== securityToken) {
-        //antes de enviar o e-mail de atualização, verifica se um e-mail já foi enviado anteriormente
-        const now = new Date();
-        const nowInSeconds = Math.floor(now.getTime() / 1000);
-        const limitToUpdateToken = user.security_token_email_sended_at
-          ? Math.floor(user.security_token_email_sended_at.getTime() / 1000) + 15 * 60
-          : -1;
-
-        if (limitToUpdateToken > nowInSeconds) {
-          return res.status(400).json({
-            status: "error",
-            message:
-              "Você já deve ter recebido o e-mail de autorização. Verifique na caixa de SPAN",
-          });
-        }
-
-        await pool.query(
-          "UPDATE clients SET security_token_email_sended_at = $1 WHERE id = $2",
-          [now.toISOString(), user.id]
+      // Se por algum motivo MUITO estranho o usuário não for encontrado aqui, é um erro de servidor.
+      if (userResult.rows.length === 0) {
+        throw new Error(
+          "Falha crítica na lógica de login: usuário não encontrado após UPSERT."
         );
+      }
+      const user = userResult.rows[0];
 
-        const tokenParams = [
-          user.token,
-          user.security_token,
-          securityToken,
-          generateExpirationTime("15m"),
-        ];
-        const result = await sendSecurityEmail({
-          name: user.name,
-          email: user.email,
-          token: `${encodeArrayToBase64(tokenParams)}`,
-        });
-        console.log("[authRoutes] result =", result);
-        return res.status(403).json({
-          status: "error",
-          message:
-            "Você está tentando acessar através de um dispositivo diferente do de cadastro. Foi enviado um e-mail para que você altorize o acesso através do novo dispositivo",
-        });
+      // --- 2. LÓGICA DE VALIDAÇÃO DO SECURITY TOKEN (Refatorada) ---
+
+      // CASO 1: O security_token no banco é diferente do enviado (acesso de novo dispositivo)
+      if (user.security_token !== securityToken) {
+        // A lógica de rate limit e envio de email foi extraída para uma função para maior clareza.
+        return await handleMismatchedSecurityToken(user, securityToken, res);
       }
 
-      // Criar o payload do JWT
+      // Se chegamos aqui, o security_token bate com o do banco.
+      // Este é o "caminho feliz".
+
+      // --- 3. GERAÇÃO DO JWT E RESPOSTA DE SUCESSO ---
       const payload = {
-        userToken: user.token,
-        roles: ["web"], // Definindo um papel padrão para web
+        userToken: user.token, // Assumindo que o token de usuário (UUID) é gerado por padrão no DB ou em outro lugar
+        roles: ["web"],
       };
 
-      const token = jwt.sign(payload, process.env.JWT_SECRET, {
+      const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRES_IN || "1h",
       });
 
-      res.status(200).json({
+      return res.status(200).json({
         status: "success",
         message: "Login bem-sucedido.",
-        token: token,
+        token: jwtToken,
       });
     } catch (error) {
       next(error);
@@ -294,71 +247,127 @@ router.post(
 );
 
 /**
+ * Função auxiliar para lidar com a lógica de token de segurança divergente.
+ * Isso limpa o handler principal do endpoint.
+ */
+async function handleMismatchedSecurityToken(user, newSecurityToken, res) {
+  const now = new Date();
+  const nowInSeconds = Math.floor(now.getTime() / 1000);
+  const fifteenMinutesInSeconds = 15 * 60;
+
+  if (user.security_token_email_sended_at) {
+    const emailSentAtInSeconds = Math.floor(
+      user.security_token_email_sended_at.getTime() / 1000
+    );
+    if (emailSentAtInSeconds + fifteenMinutesInSeconds > nowInSeconds) {
+      return res.status(429).json({
+        // 429 Too Many Requests é mais semântico aqui
+        status: "error",
+        message:
+          "Você já deve ter recebido o e-mail de autorização. Verifique sua caixa de entrada e spam.",
+      });
+    }
+  }
+
+  // Atualiza o timestamp do envio de e-mail
+  await pool.query(
+    "UPDATE clients SET security_token_email_sended_at = $1 WHERE id = $2",
+    [now.toISOString(), user.id]
+  );
+
+  const payload = {
+    userToken: user.token, // Identificador único do usuário
+    newSecurityToken: newSecurityToken, // O novo token a ser definido
+    aud: "security-token-update", // 'Audience' - especifica o propósito do token
+  };
+
+  const linkToken = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "15m", // O JWT já controla a expiração!
+  });
+
+  // Envia o e-mail com o novo `linkToken`
+  await sendSecurityEmail({
+    name: user.name,
+    email: user.email,
+    token: linkToken, // Envia o JWT
+  });
+
+  return res.status(403).json({
+    // 403 Forbidden é adequado
+    status: "error",
+    message:
+      "Você está tentando acessar através de um dispositivo não autorizado. Um e-mail foi enviado para permitir o acesso.",
+  });
+}
+
+/**
  * @route   PUT /api/auth/update-security-token
  * @desc    Atualização do token de segurança do dispositivo
  * @access  Public
  */
 router.put("/update-security-token", async (req, res, next) => {
-  // Pega o parâmetro 'q' da query string da URL
   const { token } = req.body;
 
   if (!token) {
     return res
       .status(400)
-      .json({ status: "error", message: "Parâmetro não encontrado." });
+      .json({ status: "error", message: "Token de autorização não fornecido." });
   }
 
   try {
-    // Recupera o array original
-    const recoveredData = decodeBase64ToArray(token);
-    if (recoveredData.length < 4) {
-      return res.status(400).json({
+    // --- 1. VERIFICAÇÃO SEGURA E INTEGRADA DO JWT ---
+    const decodedPayload = jwt.verify(token, process.env.JWT_SECRET, {
+      audience: 'security-token-update', // Garante que o token foi gerado para este propósito
+    });
+    
+    // O `jwt.verify` já lança um erro se o token for inválido, adulterado ou expirado.
+    // O bloco catch abaixo cuidará desses erros automaticamente.
+
+    const { userToken, newSecurityToken } = decodedPayload;
+
+    // --- 2. QUERY DE UPDATE ATÔMICA E EFICIENTE ---
+    // Atualizamos o security_token diretamente, usando o userToken como identificador único.
+    // A cláusula `RETURNING id` nos permite verificar se alguma linha foi de fato atualizada.
+    const updateSql = `
+      UPDATE clients 
+      SET security_token = $1, updated_at = now() 
+      WHERE token = $2 
+      RETURNING id;
+    `;
+    const result = await pool.query(updateSql, [newSecurityToken, userToken]);
+    
+    // Se `rowCount` for 0, significa que o `userToken` não correspondeu a nenhum cliente.
+    if (result.rowCount === 0) {
+      return res.status(404).json({
         status: "error",
-        message: "Parâmetro no formato não esperado.",
+        message: "Usuário associado a este token não foi encontrado.",
       });
     }
 
-    const currentDate = Math.floor(Date.now() / 1000);
-    if (recoveredData[3] < currentDate) {
-      return res.status(400).json({
-        status: "error",
-        message: "Token expirado.",
-      });
-    }
+    const updatedClientId = result.rows[0].id;
 
-    console.log("Dados recuperados com sucesso:", recoveredData);
-
-    let sql = `SELECT * FROM clients WHERE token = $1 AND security_token = $2`;
-    let params = [recoveredData[0], recoveredData[1]];
-
-    const { rows } = await pool.query(sql, params);
-    if (rows.length <= 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "Cliente não encontrado.",
-      });
-    }
-
-    sql = `UPDATE clients SET security_token = $1 WHERE id = $2`;
-    params = [recoveredData[2], rows[0].id];
-    await pool.query(sql, params);
-
-    // 7. Log de auditoria
+    // --- 3. LOG DE AUDITORIA ---
     await logActivity(
-      1,
+      updatedClientId, // Usando o ID retornado
       "UPDATE_SECURITY_TOKEN",
-      { type: "clients", id: rows[0].id },
-      {
-        requestBody: req.query,
-        recoveredData,
-      }
+      { type: "clients", id: updatedClientId },
+      { source: "email_link" } // Log mais simples e relevante
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
-      message: "Alterado com sucesso.",
+      message: "Seu dispositivo foi autorizado com sucesso. Você já pode fazer o login.",
     });
+
   } catch (error) {
+    // O bloco catch agora lida com vários tipos de erro do JWT
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({ status: 'error', message: 'Token expirado. Por favor, tente fazer o login novamente para gerar um novo link.' });
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ status: 'error', message: 'Token inválido ou malformado.' });
+    }
+    // Para outros erros, passa para o middleware de erro padrão
     next(error);
   }
 });
