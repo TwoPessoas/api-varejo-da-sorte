@@ -180,8 +180,7 @@ const exportDrawNumbersHandler = createExportHandler({
   searchableFields,
 });
 
-router.use(authenticateToken, authorizeRoles("web"));
-router.get("/list", getAllDrawNumbersByToken);
+router.get("/list", authenticateToken, authorizeRoles("web"), getAllDrawNumbersByToken);
 
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de draw number ---
 router.use(authenticateToken, authorizeRoles("admin"));

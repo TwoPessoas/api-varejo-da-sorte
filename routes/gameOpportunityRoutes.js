@@ -194,8 +194,7 @@ const exportGameOpportunitiesHandler = createExportHandler({
   searchableFields,
 });
 
-router.use(authenticateToken, authorizeRoles("web"));
-router.get("/list", getAllGameOpportunitiesByToken);
+router.get("/list", authenticateToken, authorizeRoles("web"), getAllGameOpportunitiesByToken);
 
 // --- Aplica middlewares de autenticação e autorização para TODAS as rotas de oportunidade de jogo ---
 router.use(authenticateToken, authorizeRoles("admin"));

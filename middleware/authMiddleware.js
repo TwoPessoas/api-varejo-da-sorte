@@ -16,7 +16,9 @@ const jwt = require("jsonwebtoken");
 const authenticateToken = (req, res, next) => {
     // Padrão comum para enviar o token: Bearer <TOKEN>
     const authHeader = req.headers["authorization"];
+    //console.log('[authenticateToken][0] authHeader = ', authHeader);
     const token = authHeader && authHeader.split(" ")[1]; // Extrai o token
+    //console.log('[authenticateToken][1] token = ', {token, secret: process.env.JWT_SECRET});
 
     if (!token) {
         // Se não há token, retorna 401 Unauthorized

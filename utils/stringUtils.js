@@ -67,11 +67,9 @@ function isValidCPF(cpf) {
 function encodeArrayToBase64(dataArray, delimiter = '%|%') {
     // 1. Junta o array em uma única string com o delimitador
     const joinedString = dataArray.join(delimiter);
-    console.log(`String unida: "${joinedString}"`);
-
+    
     // 2. Converte a string para Base64
     const base64String = Buffer.from(joinedString).toString('base64');
-    console.log(`String em Base64: "${base64String}"`);
 
     return base64String;
 }

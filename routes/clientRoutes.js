@@ -186,10 +186,9 @@ const getClientWebSummary = async (req, res, next) => {
   }
 };
 
-router.use(authenticateToken, authorizeRoles("web"));
-router.get("/me", getMe);
-router.get("/web", getClientWebByToken);
-router.get("/summary", getClientWebSummary);
+router.get("/me", authenticateToken, authorizeRoles("web"), getMe);
+router.get("/web", authenticateToken, authorizeRoles("web"), getClientWebByToken);
+router.get("/summary", authenticateToken, authorizeRoles("web"), getClientWebSummary);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de cliente ---
 router.use(authenticateToken, authorizeRoles("admin"));
