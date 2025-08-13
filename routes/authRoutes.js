@@ -194,12 +194,13 @@ router.post(
       // --- 1. OPERAÇÃO ATÔMICA DE UPSERT E BUSCA ---
       // Primeiro, tenta inserir o cliente. Se já existir um com o mesmo CPF, não faz nada.
       // Isso previne race conditions e prepara o terreno de forma atômica.
+      const newToken = crypto.randomBytes(32).toString("hex");
       const upsertSql = `
-        INSERT INTO clients (is_pre_register, cpf, security_token, created_at, updated_at)
-        VALUES (true, $1, $2, now(), now())
+        INSERT INTO clients (is_pre_register, cpf, token, security_token, created_at, updated_at)
+        VALUES (true, $1, $2, $3, now(), now())
         ON CONFLICT (cpf) DO NOTHING;
       `;
-      await pool.query(upsertSql, [cpf, securityToken]);
+      await pool.query(upsertSql, [cpf, newToken, securityToken]);
 
       // Agora, com certeza o cliente existe (seja o que acabamos de inserir ou um pré-existente).
       // Buscamos os dados dele em uma única query garantida.
