@@ -62,7 +62,11 @@ const clientExportColumns = [
   { key: "email_sended_at", header: "Email Enviado Em", width: 25 },
   { key: "created_at", header: "Criado Em", width: 25 },
   { key: "updated_at", header: "Atualizado Em", width: 25 },
-  { key: "updated_security_token_at", header: "Token de segurança atualizado em", width: 25 },
+  {
+    key: "updated_security_token_at",
+    header: "Token de segurança atualizado em",
+    width: 25,
+  },
 ];
 
 // --- Criação dos Handlers CRUD para Clientes ---
@@ -186,9 +190,56 @@ const getClientWebSummary = async (req, res, next) => {
   }
 };
 
+const updatedClientWebByToken = async (req, res, next) => {
+  try {
+    const token = req.user.userToken;
+    console.log('[updatedClientWebByToken] token', token);
+    const user = req.user;
+    console.log('[updatedClientWebByToken] user', user)
+    const { rows } = await pool.query(
+      `SELECT * FROM clients WHERE token = $1`,
+      [token]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: `Cliente não encontrado.`,
+      });
+    }
+
+    const { birthday, cel, email, name } = req.params;
+    await pool.query(
+      "UPDATE clients SET is_pre_register=$1, birthday=$2, cel=$3, email=$4, name=$5 WHERE id = $6",
+      [false, birthday, cel, email ? email : user.email, name, user.id]
+    );
+
+    rows = await pool.query(`SELECT * FROM clients WHERE id = $1`, [user.id]);
+    var clientTO = clientMaskInfo(rows[0]);
+    res.status(200).json(convertKeysToCamelCase(clientTO));
+  } catch (error) {
+    next(error);
+  }
+};
+
 router.get("/me", authenticateToken, authorizeRoles("web"), getMe);
-router.get("/web", authenticateToken, authorizeRoles("web"), getClientWebByToken);
-router.get("/summary", authenticateToken, authorizeRoles("web"), getClientWebSummary);
+router.get(
+  "/web",
+  authenticateToken,
+  authorizeRoles("web"),
+  getClientWebByToken
+);
+router.get(
+  "/summary",
+  authenticateToken,
+  authorizeRoles("web"),
+  getClientWebSummary
+);
+router.put(
+  "/web",
+  authenticateToken,
+  authorizeRoles("web"),
+  updatedClientWebByToken
+);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de cliente ---
 router.use(authenticateToken, authorizeRoles("admin"));
