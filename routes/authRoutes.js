@@ -1,5 +1,3 @@
-// routes/authRoutes.js
-
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
@@ -14,11 +12,7 @@ const {
   webLoginValidationRules,
 } = require("../validators/authValidador");
 const { sendSecurityEmail } = require("../services/emailService");
-const {
-  encodeArrayToBase64,
-  decodeBase64ToArray,
-} = require("../utils/stringUtils");
-const { generateExpirationTime } = require("../utils/dataUtils");
+const { isEmpty } = require("../utils/stringUtils");
 const { logActivity } = require("../utils/logger");
 
 /**
@@ -215,12 +209,19 @@ router.post(
       }
       const user = userResult.rows[0];
 
-      // --- 2. LÓGICA DE VALIDAÇÃO DO SECURITY TOKEN (Refatorada) ---
-
       // CASO 1: O security_token no banco é diferente do enviado (acesso de novo dispositivo)
       if (user.security_token !== securityToken) {
-        // A lógica de rate limit e envio de email foi extraída para uma função para maior clareza.
-        return await handleMismatchedSecurityToken(user, securityToken, res);
+        //verifica se o user é um pre-cadastro
+        if (user.is_pre_register || isEmpty(user.email)) {
+          // Atualiza o security_token
+          await pool.query(
+            "UPDATE clients SET security_token = $1 WHERE id = $2",
+            [securityToken, user.id]
+          );
+        } else {
+          // A lógica de rate limit e envio de email foi extraída para uma função para maior clareza.
+          return await handleMismatchedSecurityToken(user, securityToken, res);
+        }
       }
 
       // Se chegamos aqui, o security_token bate com o do banco.
@@ -310,17 +311,18 @@ router.put("/update-security-token", async (req, res, next) => {
   const { token } = req.body;
 
   if (!token) {
-    return res
-      .status(400)
-      .json({ status: "error", message: "Token de autorização não fornecido." });
+    return res.status(400).json({
+      status: "error",
+      message: "Token de autorização não fornecido.",
+    });
   }
 
   try {
     // --- 1. VERIFICAÇÃO SEGURA E INTEGRADA DO JWT ---
     const decodedPayload = jwt.verify(token, process.env.JWT_SECRET, {
-      audience: 'security-token-update', // Garante que o token foi gerado para este propósito
+      audience: "security-token-update", // Garante que o token foi gerado para este propósito
     });
-    
+
     // O `jwt.verify` já lança um erro se o token for inválido, adulterado ou expirado.
     // O bloco catch abaixo cuidará desses erros automaticamente.
 
@@ -336,7 +338,7 @@ router.put("/update-security-token", async (req, res, next) => {
       RETURNING id;
     `;
     const result = await pool.query(updateSql, [newSecurityToken, userToken]);
-    
+
     // Se `rowCount` for 0, significa que o `userToken` não correspondeu a nenhum cliente.
     if (result.rowCount === 0) {
       return res.status(404).json({
@@ -357,16 +359,22 @@ router.put("/update-security-token", async (req, res, next) => {
 
     return res.status(200).json({
       status: "success",
-      message: "Seu dispositivo foi autorizado com sucesso. Você já pode fazer o login.",
+      message:
+        "Seu dispositivo foi autorizado com sucesso. Você já pode fazer o login.",
     });
-
   } catch (error) {
     // O bloco catch agora lida com vários tipos de erro do JWT
     if (error instanceof jwt.TokenExpiredError) {
-      return res.status(401).json({ status: 'error', message: 'Token expirado. Por favor, tente fazer o login novamente para gerar um novo link.' });
+      return res.status(401).json({
+        status: "error",
+        message:
+          "Token expirado. Por favor, tente fazer o login novamente para gerar um novo link.",
+      });
     }
     if (error instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({ status: 'error', message: 'Token inválido ou malformado.' });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Token inválido ou malformado." });
     }
     // Para outros erros, passa para o middleware de erro padrão
     next(error);

@@ -90,4 +90,15 @@ function decodeBase64ToArray(base64String, delimiter = '%|%') {
     return originalArray;
 }
 
-module.exports = { slugify, isValidCPF, encodeArrayToBase64, decodeBase64ToArray };
+function isEmpty(str) {
+  // 1. Verifica se o valor é null ou undefined
+  if (str === null || str === undefined) {
+    return true;
+  }
+
+  // 2. Garante que é uma string antes de chamar trim() e verifica se está vazia.
+  // Isso evita erros se um número ou outro tipo for passado.
+  return String(str).trim() === '';
+};
+
+module.exports = { slugify, isValidCPF, encodeArrayToBase64, decodeBase64ToArray, isEmpty };
