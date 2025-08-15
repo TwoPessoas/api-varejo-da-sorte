@@ -193,9 +193,6 @@ const getClientWebSummary = async (req, res, next) => {
 const updatedClientWebByToken = async (req, res, next) => {
   try {
     const token = req.user.userToken;
-    console.log('[updatedClientWebByToken] token', token);
-    const user = req.user;
-    console.log('[updatedClientWebByToken] user', user)
     const { rows } = await pool.query(
       `SELECT * FROM clients WHERE token = $1`,
       [token]
@@ -206,15 +203,16 @@ const updatedClientWebByToken = async (req, res, next) => {
         message: `Cliente não encontrado.`,
       });
     }
-
-    const { birthday, cel, email, name } = req.params;
-    await pool.query(
-      "UPDATE clients SET is_pre_register=$1, birthday=$2, cel=$3, email=$4, name=$5 WHERE id = $6",
+    
+    const user = rows[0];
+    const { birthday, cel, email, name } = req.body;
+    
+    const request = await pool.query(
+      "UPDATE clients SET is_pre_register=$1, birthday=$2, cel=$3, email=$4, name=$5 WHERE id=$6 RETURNING *",
       [false, birthday, cel, email ? email : user.email, name, user.id]
     );
-
-    rows = await pool.query(`SELECT * FROM clients WHERE id = $1`, [user.id]);
-    var clientTO = clientMaskInfo(rows[0]);
+    
+    var clientTO = clientMaskInfo(request.rows[0]);
     res.status(200).json(convertKeysToCamelCase(clientTO));
   } catch (error) {
     next(error);
