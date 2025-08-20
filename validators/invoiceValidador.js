@@ -47,6 +47,60 @@ const validateDigitVerification = (fiscalCode) => {
   return digitVerification === result;
 };
 
+const addInvoiceValidationRules = [
+  body("fiscalCode")
+    .notEmpty()
+    .withMessage("O código fiscal (fiscalCode) é obrigatório.")
+    .isNumeric()
+    .withMessage("O código fiscal deve conter apenas números.") // Substitui .isString() e valida "apenas número"
+    .isLength({ min: 44, max: 44 })
+    .withMessage("O código fiscal deve ter 44 caracteres.") // Adicionei um min: 7 com base na necessidade de ter o YYMM + dígito verificador. Ajuste se houver um tamanho fixo.
+    // Validação da data da nota fiscal (Substring do ano e mês, ex: "2411" para Nov/2024)
+    .custom((value, { req }) => {
+      const dateInvoice = parseInt(value.substring(2, 6), 10); // Ex: "2411" se o fiscalCode for "XX2411YYYY..."
+      if (isNaN(dateInvoice)) {
+        // Garante que a conversão para número foi bem-sucedida
+        throw new Error("Formato de data no código fiscal inválido.");
+      }
+      // A promoção começa a partir de Nov/2024 (2411)
+      if (dateInvoice < 2411) {
+        throw new Error("Nota Fiscal não pertence ao período da promoção.");
+      }
+      return true;
+    })
+    // Validação do dígito verificador (usando a função auxiliar)
+    .custom((value, { req }) => {
+      if (!validateDigitVerification(value)) {
+        throw new Error("Nota Fiscal inválida (dígito verificador incorreto).");
+      }
+      return true;
+    })
+    // Validação de unicidade (mantida da implementação anterior)
+    .custom(async (value, { req }) => {
+      // Se o valor estiver vazio (já pego por .notEmpty()), não precisa checar unicidade
+      if (!value) return true;
+
+      const id = req.params.id; // Para cenários de atualização (PUT), ignora o próprio ID
+
+      let sql = "SELECT id FROM invoices WHERE fiscal_code = $1";
+      const params = [value];
+
+      if (id) {
+        // Se for uma atualização (ID presente na URL)
+        sql += " AND id != $2";
+        params.push(id);
+      }
+
+      const { rows } = await pool.query(sql, params);
+      if (rows.length > 0) {
+        throw new Error("Este código fiscal já está cadastrado.");
+      }
+
+      return true;
+    }),
+];
+
+
 const invoiceValidationRules = [
   body("fiscalCode")
     .notEmpty()
@@ -132,4 +186,5 @@ const invoiceValidationErrors = (req, res, next) => {
 module.exports = {
   invoiceValidationRules,
   invoiceValidationErrors,
+  addInvoiceValidationRules,
 };
