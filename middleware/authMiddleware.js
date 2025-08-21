@@ -69,7 +69,7 @@ const authorizeRoles = (...allowedRoles) => {
 
         const userRoles = req.user.roles; // Ex: ['user', 'editor']
 
-        console.log('user roles', {userRoles, allowedRoles});
+        //console.log('user roles', {userRoles, allowedRoles});
 
         // Verifica se o array de papéis do usuário inclui pelo menos um dos papéis permitidos.
         const hasRequiredRole = userRoles.some((role) =>

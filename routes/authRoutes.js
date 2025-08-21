@@ -220,7 +220,8 @@ router.post(
           );
         } else {
           // A lógica de rate limit e envio de email foi extraída para uma função para maior clareza.
-          return await handleMismatchedSecurityToken(user, securityToken, res);
+          //TODO: No projeto Atakarejo não estará habilitado o item de segurança via token.
+          //return await handleMismatchedSecurityToken(user, securityToken, res);
         }
       }
 

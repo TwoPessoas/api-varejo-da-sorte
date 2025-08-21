@@ -28,7 +28,7 @@ const tableName = "invoices";
 const idField = "id";
 
 // Configurações de Negócio
-const MINIMUM_FISCAL_NOTE_VALUE = 50; // R\$ 50,00 - valor mínimo para participar
+const MINIMUM_FISCAL_NOTE_VALUE = 200; // R$ 200,00 - valor mínimo para participar
 
 // Campos que podem ser criados (camelCase)
 const creatableFields = [
@@ -90,6 +90,8 @@ const EXTERNAL_API_AUTH = Buffer.from(
 // --- Funções Auxiliares ---
 const hasCreditcardInInvoice = (bandeiras) => {
   if (!Array.isArray(bandeiras)) return false;
+
+  //console.log(`[hasCreditcardInInvoice] bandeiras:`, bandeiras);
 
   for (const p of bandeiras) {
     if (p === 30 || p === 31 || p === 32) return true;
@@ -172,6 +174,7 @@ const getInfoInvoiceFromExternalApi = async (fiscalCode) => {
     }
 
     const jsonObject = response.data;
+    //console.log(`[jsonObject]`, jsonObject);
     const bandeira = jsonObject.bandeira;
     const hasCreditcard = hasCreditcardInInvoice(bandeira);
     const hasPartnerCode = hasPartnerCodeInInvoice(jsonObject);
@@ -187,7 +190,7 @@ const getInfoInvoiceFromExternalApi = async (fiscalCode) => {
       store: parseInt(jsonObject.num_loja),
       numCoupon: parseInt(jsonObject.num_cupom),
       cnpj: jsonObject.cnpj.toString(),
-      creditcard: JSON.stringify(bandeira),
+      creditcard: bandeira,
       productsInInvoice: productsInInvoice, // Inclui os produtos na resposta
     };
   } catch (error) {
@@ -379,10 +382,13 @@ const invoiceTransaction = async (fiscalCode, clientId, repository) => {
   );
 
   await repository.query("COMMIT"); // Confirma a transação
+  //await repository.query("ROLLBACK"); // só para testes
 
   delete createdInvoice.id;
   delete createdInvoice.cnpj;
-  delete createdInvoice.client_id;  
+  delete createdInvoice.client_id;
+  delete createdInvoice.creditcard;
+
 
   // 8. Preparar resposta detalhada
   return {
@@ -489,6 +495,90 @@ const addInvoiceWithTransaction = async (req, res, next) => {
   }
 };
 
+// --- Rota para o Sorteio "Tente a Sorte" ---
+const tryMyLuck = async (req, res, next) => {
+  const repository = await pool.connect();
+  try {
+    await repository.query("BEGIN");
+
+    // 1. Identificar o cliente pelo token
+    const token = req.user.userToken;
+    const clientResult = await repository.query(
+      `SELECT id FROM clients WHERE token = $1`,
+      [token]
+    );
+
+    if (clientResult.rows.length === 0) {
+      throw new Error("Cliente não encontrado.");
+    }
+    const clientId = clientResult.rows[0].id;
+
+    // 2.1. Verificar se o cliente tem oportunidades ativas e não utilizadas
+    const opportunityResult = await repository.query(
+      `SELECT go.id
+       FROM game_opportunities go
+       JOIN invoices i ON go.invoice_id = i.id
+       WHERE go.active = true AND go.used_at IS NULL AND i.client_id = $1
+       ORDER BY go.created_at ASC
+       LIMIT 1`,
+      [clientId]
+    );
+
+    if (opportunityResult.rows.length === 0) {
+      await repository.query("ROLLBACK");
+      return res
+        .status(404)
+        .json({ win: false, gift: "Nenhuma oportunidade disponível." });
+    }
+    const opportunityId = opportunityResult.rows[0].id;
+
+    // 2.2. Tenta encontrar e bloquear um voucher disponível para o sorteio
+    const voucherResult = await repository.query(
+      `SELECT id FROM vouchers
+       WHERE draw_date <= now() AND game_opportunity_id IS NULL
+       ORDER BY draw_date ASC
+       LIMIT 1
+       FOR UPDATE`
+    );
+
+    if (voucherResult.rows.length > 0) {
+      // 2.3. Ganhou! Atualiza o voucher
+      const voucherId = voucherResult.rows[0].id;
+      await repository.query(
+        `UPDATE vouchers SET game_opportunity_id = $1, updated_at = now() WHERE id = $2`,
+        [opportunityId, voucherId]
+      );
+
+      // 2.4. Atualiza a oportunidade com a mensagem de prêmio
+      const giftMessage = "Parabéns você ganhou um voucher";
+      await repository.query(
+        `UPDATE game_opportunities SET gift = $1, used_at = now(), updated_at = now() WHERE id = $2`,
+        [giftMessage, opportunityId]
+      );
+
+      await repository.query("COMMIT");
+      // 2.5. Responde com sucesso
+      return res.status(200).json({ win: true, gift: giftMessage });
+    } else {
+      // Não ganhou. Apenas atualiza a oportunidade
+      const giftMessage = "Não foi dessa vez";
+      await repository.query(
+        `UPDATE game_opportunities SET gift = $1, used_at = now(), updated_at = now() WHERE id = $2`,
+        [giftMessage, opportunityId]
+      );
+
+      await repository.query("COMMIT");
+      // 2.5. Responde que não ganhou
+      return res.status(200).json({ win: false, gift: giftMessage });
+    }
+  } catch (error) {
+    await repository.query("ROLLBACK");
+    next(error);
+  } finally {
+    repository.release();
+  }
+};
+
 // --- Criação dos Handlers CRUD para Faturas (sem o create customizado) ---
 const invoiceCrud = createCrudHandlers({
   pool,
@@ -518,7 +608,14 @@ router.post(
   addInvoiceValidationRules,
   invoiceValidationErrors,
   addInvoiceWithTransaction
-); // CREATE customizado
+);
+
+router.get(
+  "/try-my-luck",
+  authenticateToken,
+  authorizeRoles("web"),
+  tryMyLuck
+);
 
 // --- Aplicação de Middlewares ---
 router.use(authenticateToken, authorizeRoles("admin"));
