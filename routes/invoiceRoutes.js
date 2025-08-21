@@ -534,7 +534,7 @@ const tryMyLuck = async (req, res, next) => {
 
     // 2.2. Tenta encontrar e bloquear um voucher disponível para o sorteio
     const voucherResult = await repository.query(
-      `SELECT id FROM vouchers
+      `SELECT id, coupom FROM vouchers
        WHERE draw_date <= now() AND game_opportunity_id IS NULL
        ORDER BY draw_date ASC
        LIMIT 1
@@ -543,10 +543,10 @@ const tryMyLuck = async (req, res, next) => {
 
     if (voucherResult.rows.length > 0) {
       // 2.3. Ganhou! Atualiza o voucher
-      const voucherId = voucherResult.rows[0].id;
+      const voucher = voucherResult.rows[0];
       await repository.query(
         `UPDATE vouchers SET game_opportunity_id = $1, updated_at = now() WHERE id = $2`,
-        [opportunityId, voucherId]
+        [opportunityId, voucher.id]
       );
 
       // 2.4. Atualiza a oportunidade com a mensagem de prêmio
@@ -558,7 +558,7 @@ const tryMyLuck = async (req, res, next) => {
 
       await repository.query("COMMIT");
       // 2.5. Responde com sucesso
-      return res.status(200).json({ win: true, gift: giftMessage });
+      return res.status(200).json({ win: true, gift: giftMessage, voucher: voucher.coupom });
     } else {
       // Não ganhou. Apenas atualiza a oportunidade
       const giftMessage = "Não foi dessa vez";
