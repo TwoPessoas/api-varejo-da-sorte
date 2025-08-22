@@ -389,7 +389,6 @@ const invoiceTransaction = async (fiscalCode, clientId, repository) => {
   delete createdInvoice.client_id;
   delete createdInvoice.creditcard;
 
-
   // 8. Preparar resposta detalhada
   return {
     invoice: convertKeysToCamelCase(createdInvoice),
@@ -532,45 +531,61 @@ const tryMyLuck = async (req, res, next) => {
     }
     const opportunityId = opportunityResult.rows[0].id;
 
-    // 2.2. Tenta encontrar e bloquear um voucher disponível para o sorteio
-    const voucherResult = await repository.query(
-      `SELECT id, coupom FROM vouchers
-       WHERE draw_date <= now() AND game_opportunity_id IS NULL
-       ORDER BY draw_date ASC
-       LIMIT 1
-       FOR UPDATE`
+    // Verificação: Cliente já ganhou um voucher anteriormente?
+    const hasWonBeforeResult = await repository.query(
+      `SELECT v.id FROM vouchers v
+       JOIN game_opportunities go ON v.game_opportunity_id = go.id
+       JOIN invoices i ON go.invoice_id = i.id
+       WHERE i.client_id = $1`,
+      [clientId]
     );
 
-    if (voucherResult.rows.length > 0) {
-      // 2.3. Ganhou! Atualiza o voucher
-      const voucher = voucherResult.rows[0];
-      await repository.query(
-        `UPDATE vouchers SET game_opportunity_id = $1, updated_at = now() WHERE id = $2`,
-        [opportunityId, voucher.id]
-      );
+    let alreadyWon = hasWonBeforeResult.rows.length > 0;
+    let giftMessage;
+    let winStatus;
+    let voucherCoupom = null;
 
-      // 2.4. Atualiza a oportunidade com a mensagem de prêmio
-      const giftMessage = "Parabéns você ganhou um voucher";
-      await repository.query(
-        `UPDATE game_opportunities SET gift = $1, used_at = now(), updated_at = now() WHERE id = $2`,
-        [giftMessage, opportunityId]
-      );
-
-      await repository.query("COMMIT");
-      // 2.5. Responde com sucesso
-      return res.status(200).json({ win: true, gift: giftMessage, voucher: voucher.coupom });
+    if (alreadyWon) {
+      giftMessage = "Não foi dessa vez";
+      winStatus = false;
     } else {
-      // Não ganhou. Apenas atualiza a oportunidade
-      const giftMessage = "Não foi dessa vez";
-      await repository.query(
-        `UPDATE game_opportunities SET gift = $1, used_at = now(), updated_at = now() WHERE id = $2`,
-        [giftMessage, opportunityId]
+      // 2.2. Tenta encontrar e bloquear um voucher disponível para o sorteio
+      const voucherResult = await repository.query(
+        `SELECT id, coupom FROM vouchers
+           WHERE draw_date <= now() AND game_opportunity_id IS NULL
+           ORDER BY draw_date ASC
+           LIMIT 1
+           FOR UPDATE`
       );
 
-      await repository.query("COMMIT");
-      // 2.5. Responde que não ganhou
-      return res.status(200).json({ win: false, gift: giftMessage });
+      if (voucherResult.rows.length > 0) {
+        // 2.3. Ganhou! Atualiza o voucher
+        const voucher = voucherResult.rows[0];
+        await repository.query(
+          `UPDATE vouchers SET game_opportunity_id = $1, updated_at = now() WHERE id = $2`,
+          [opportunityId, voucher.id]
+        );
+        giftMessage = "Parabéns você ganhou um voucher";
+        winStatus = true;
+        voucherCoupom = voucher.coupom;
+      } else {
+        // Não ganhou. Apenas atualiza a oportunidade
+        giftMessage = "Não foi dessa vez";
+        winStatus = false;
+      }
     }
+
+    // Common update for game_opportunities and response
+    await repository.query(
+      `UPDATE game_opportunities SET gift = $1, used_at = now(), updated_at = now() WHERE id = $2`,
+      [giftMessage, opportunityId]
+    );
+
+    await repository.query("COMMIT");
+
+    return res
+      .status(200)
+      .json({ win: winStatus, gift: giftMessage, voucher: voucherCoupom });
   } catch (error) {
     await repository.query("ROLLBACK");
     next(error);
@@ -610,12 +625,7 @@ router.post(
   addInvoiceWithTransaction
 );
 
-router.get(
-  "/try-my-luck",
-  authenticateToken,
-  authorizeRoles("web"),
-  tryMyLuck
-);
+router.get("/try-my-luck", authenticateToken, authorizeRoles("web"), tryMyLuck);
 
 // --- Aplicação de Middlewares ---
 router.use(authenticateToken, authorizeRoles("admin"));
