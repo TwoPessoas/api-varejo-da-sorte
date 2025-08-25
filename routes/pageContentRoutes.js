@@ -198,6 +198,31 @@ const exportPageContentsHandler = createExportHandler({
   searchableFields,
 });
 
+
+const getPageContentBySlug = async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const result = await pool.query(
+      "SELECT title, content FROM page_contents WHERE slug = $1",
+      [slug]
+    );
+
+    if (result.rowCount === 0) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "Conteúdo não encontrado." });
+    }
+    res.status(200).json({
+      status: "success",
+      data: convertKeysToCamelCase(result.rows[0]),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+router.get("/get-content-by-slug/:slug", getPageContentBySlug);
+
 // --- Definição das Rotas Administrativas ---
 
 // Rota de Exportação (opcional, mas boa para consistência)
