@@ -45,31 +45,6 @@ const pageContentExportColumns = [
   { key: "updated_at", header: "Atualizado Em", width: 25 },
 ];
 
-// --- Rota Pública (não requer autenticação) ---
-// Deve vir ANTES da aplicação do middleware de autenticação (router.use(authenticateToken, authorizeRoles("admin"))).
-// GET /api/pages/slug/politica-de-privacidade
-router.get("/slug/:slug", async (req, res, next) => {
-  try {
-    const { slug } = req.params;
-    const result = await pool.query(
-      "SELECT * FROM page_contents WHERE slug = $1",
-      [slug]
-    );
-
-    if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Página não encontrada." });
-    }
-    res.status(200).json({
-      status: "success",
-      data: convertKeysToCamelCase(result.rows[0]),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 // --- Funções Auxiliares para lógica customizada (especialmente preCreate) ---
 
 /**
@@ -104,8 +79,6 @@ const generateUniqueSlug = async (data, context) => {
   // Atualiza o slug nos dados para inserção
   return { ...data, slug: newSlug };
 };
-
-// --- Funções CRUD customizadas para PageContent ---
 
 // Custom GET ALL para listar páginas no painel de administração (exclui o campo 'content' por performance)
 const getAllPageContentsForAdminList = async (req, res, next) => {
@@ -151,6 +124,31 @@ const getAllPageContentsForAdminList = async (req, res, next) => {
     next(error);
   }
 };
+
+const getPageContentBySlug = async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const result = await pool.query(
+      "SELECT title, content FROM page_contents WHERE slug = $1",
+      [slug]
+    );
+
+    if (result.rowCount === 0) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "Conteúdo não encontrado." });
+    }
+    res.status(200).json({
+      status: "success",
+      data: convertKeysToCamelCase(result.rows[0]),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- Rota Pública (não requer autenticação) ---
+router.get("/get-content-by-slug/:slug", getPageContentBySlug);
 
 // --- Rotas Administrativas (requerem autenticação e papel 'admin') ---
 router.use(authenticateToken, authorizeRoles("admin"));
@@ -198,35 +196,13 @@ const exportPageContentsHandler = createExportHandler({
   searchableFields,
 });
 
-
-const getPageContentBySlug = async (req, res, next) => {
-  try {
-    const { slug } = req.params;
-    const result = await pool.query(
-      "SELECT title, content FROM page_contents WHERE slug = $1",
-      [slug]
-    );
-
-    if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Conteúdo não encontrado." });
-    }
-    res.status(200).json({
-      status: "success",
-      data: convertKeysToCamelCase(result.rows[0]),
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-router.get("/get-content-by-slug/:slug", getPageContentBySlug);
-
 // --- Definição das Rotas Administrativas ---
 
 // Rota de Exportação (opcional, mas boa para consistência)
 router.get("/export", exportPageContentsHandler);
+
+// --- Aplicação de Middlewares ---
+router.use(authenticateToken, authorizeRoles("admin"));
 
 // Rota para CRIAR uma nova página
 router.post(
