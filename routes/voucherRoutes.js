@@ -17,6 +17,7 @@ const {
   voucherValidationRules,
   voucherValidationErrors,
 } = require("../validators/voucherValidador"); // Assumindo que este arquivo existe e está correto
+const { voucherMaskInfo } = require("../utils/maskInfo");
 
 // --- Configurações Específicas da Entidade Voucher ---
 const tableName = "vouchers";
@@ -65,6 +66,27 @@ const exportVouchersHandler = createExportHandler({
   columnsConfig: voucherExportColumns,
   searchableFields,
 });
+
+const getVouchersDrawn = async (req, res, next) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT v.draw_date, c.name, c.cpf 
+       FROM ${tableName} as v
+       join game_opportunities as go on v.game_opportunity_id = go.id
+       join invoices as i on go.invoice_id = i.id 
+       join clients as c on i.client_id = c.id 
+       where v.game_opportunity_id is not null
+       order by draw_date DESC`
+    );
+
+    res.status(200).json({ status: "success", data: rows.map(el => voucherMaskInfo(el))});
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ------------ ROTAS PUBLICAS ------------
+router.get("/drawn", getVouchersDrawn);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de voucher ---
 router.use(authenticateToken, authorizeRoles("admin"));

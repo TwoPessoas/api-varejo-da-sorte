@@ -52,6 +52,37 @@ function clientMaskInfo(client) {
   return clientMasked;
 }
 
+function voucherMaskInfo(voucher) {
+  if (!voucher) return null;
+
+  // Cria uma cópia para não alterar o objeto original
+  const voucherMasked = { ...voucher };
+
+  if (voucherMasked.name) {
+    const names = voucherMasked.name.split(" ");
+    if (names.length > 1) {
+      // Máscara para nomes com mais de uma palavra
+      voucherMasked.name =
+        names[0] + " " + names.slice(1).map(n => n[0] + ".").join(" ");
+    } else {
+      // Máscara para nomes com uma única palavra
+      voucherMasked.name = names[0][0] + ".";
+    }
+  }
+
+  // Mascarar CPF: Exibe os 3 primeiros e os 2 últimos dígitos
+  // Ex: 123.456.789-01 -> 123.###.###-01
+  if (voucherMasked.cpf) {
+    voucherMasked.cpf = voucherMasked.cpf.replace(
+      /(\d{3})\.(\d{3})\.(\d{3})-(\d{2})/,
+      "$1.###.###-$4"
+    );
+  }
+
+  return voucherMasked;
+}
+
 module.exports = {
   clientMaskInfo,
+  voucherMaskInfo
 };
