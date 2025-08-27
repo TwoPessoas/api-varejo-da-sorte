@@ -19,6 +19,7 @@ const {
 } = require("../validators/voucherValidador"); // Assumindo que este arquivo existe e está correto
 const { voucherMaskInfo } = require("../utils/maskInfo");
 const { convertKeysToCamelCase } = require("../utils/objectUtils");
+const { sendVoucherWinnerEmail } = require("../services/emailService");
 
 // --- Configurações Específicas da Entidade Voucher ---
 const tableName = "vouchers";
@@ -88,7 +89,47 @@ const getVouchersDrawn = async (req, res, next) => {
   }
 }
 
+const sendEmail = async (id, email, name, coupom) => {
+  try {
+    // Envio do email
+    await sendVoucherWinnerEmail({email, name, coupom});
+    await pool.query(
+            "UPDATE vouchers SET email_sended_at=now(), updated_at=now() WHERE id=$1",
+            [id]
+          );
+    console.log('Email enviado com sucesso!');
+  } catch (error) {
+    console.error('Erro ao enviar o email:', error);
+  }
+}
+
+const sendEmailDrawnVouchers = async (req, res, next) => {
+  try {
+    const {rows} = await pool.query(
+       `SELECT v.id, v.coupom, c.name, c.email
+        FROM ${tableName} as v
+        join game_opportunities as go on v.game_opportunity_id = go.id
+        join invoices as i on go.invoice_id = i.id 
+        join clients as c on i.client_id = c.id 
+        where v.game_opportunity_id is not null and v.email_sended_at is NULL
+        order by draw_date DESC`
+    );
+
+    console.log(`Enviando ${rows.length} e-mails de vouchers sorteados...`);
+    
+    rows.forEach(el => {
+      sendEmail(el.id, el.email, el.name, el.coupom); 
+    });
+
+    res.status(200).json({ status: "success", message: "E-mails de vouchers sorteados estão sendo enviados."});
+  } catch (error) {
+    next(error); 
+  }
+}
+
+
 // ------------ ROTAS PUBLICAS ------------
+router.get("/send-email-drawn-vouchers", sendEmailDrawnVouchers);
 router.get("/drawn", getVouchersDrawn);
 
 // --- Aplicação de Middlewares de Autenticação e Autorização para TODAS as rotas de voucher ---

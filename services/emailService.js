@@ -82,7 +82,42 @@ async function sendSecurityEmail(data) {
   }
 }
 
+async function sendVoucherWinnerEmail(data) {
+  console.log(`Preparando e-mail de vencedor do voucher para: ${data.email}`);
+
+  try {
+    // Prepara o conteúdo do e-mail usando o template
+    const htmlContent = prepareHtmlTemplate("email_voucher.html", {
+      NAME: data.name,
+      COUPOM: data.coupom,
+    });
+
+    const mailOptions = {
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      to: data.email,
+      subject: "Código premiado Atakarejo",
+      html: htmlContent,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(
+      `E-mail de vencedor do voucher enviado com sucesso para ${data.email}. Message ID: ${info.messageId}`
+    );
+
+    // Retorna o sucesso e o ID da mensagem para quem chamou a função
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error(
+      `Falha ao enviar e-mail de segurança para ${data.email}:`,
+      error
+    );
+    // Lança o erro para que a camada que chamou (a rota) possa tratá-lo
+    throw new Error("Falha no serviço de envio de e-mail.");
+  }
+}
+
 // Exportamos a função que queremos que seja pública (reutilizável)
 module.exports = {
   sendSecurityEmail,
+  sendVoucherWinnerEmail,
 };
