@@ -18,6 +18,7 @@ const {
   voucherValidationErrors,
 } = require("../validators/voucherValidador"); // Assumindo que este arquivo existe e está correto
 const { voucherMaskInfo } = require("../utils/maskInfo");
+const { convertKeysToCamelCase } = require("../utils/objectUtils");
 
 // --- Configurações Específicas da Entidade Voucher ---
 const tableName = "vouchers";
@@ -70,7 +71,7 @@ const exportVouchersHandler = createExportHandler({
 const getVouchersDrawn = async (req, res, next) => {
   try {
     const {rows} = await pool.query(
-      `SELECT v.draw_date drawDate, c.name, c.cpf 
+      `SELECT v.draw_date, c.name, c.cpf 
        FROM ${tableName} as v
        join game_opportunities as go on v.game_opportunity_id = go.id
        join invoices as i on go.invoice_id = i.id 
@@ -79,7 +80,9 @@ const getVouchersDrawn = async (req, res, next) => {
        order by draw_date DESC`
     );
 
-    res.status(200).json({ status: "success", data: rows.map(el => voucherMaskInfo(el))});
+    const maskered = rows.map(el => voucherMaskInfo(el));
+    
+    res.status(200).json({ status: "success", data: maskered.map(convertKeysToCamelCase)});
   } catch (error) {
     next(error);
   }
