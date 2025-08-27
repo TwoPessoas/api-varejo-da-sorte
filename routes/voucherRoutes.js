@@ -70,7 +70,7 @@ const exportVouchersHandler = createExportHandler({
 const getVouchersDrawn = async (req, res, next) => {
   try {
     const {rows} = await pool.query(
-      `SELECT v.draw_date, c.name, c.cpf 
+      `SELECT v.draw_date drawDate, c.name, c.cpf 
        FROM ${tableName} as v
        join game_opportunities as go on v.game_opportunity_id = go.id
        join invoices as i on go.invoice_id = i.id 
