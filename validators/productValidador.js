@@ -45,12 +45,13 @@ const productValidationRules = () => [
 ];
 
 const productValidationErrors = (req, res, next) => {
-  const erros = validationResult(req);
-  if (!erros.isEmpty()) {
+  const content = validationResult(req);
+  if (!content.isEmpty()) {
+    const erros = content.errors;
     return res.status(400).json({
       status: "error",
-      message: "Dados inválidos.",
-      erros: erros.array(),
+      message: erros[0]?.msg || "Dados inválidos.",
+      erros: erros,
     });
   }
   next();

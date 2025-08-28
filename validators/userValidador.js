@@ -27,15 +27,16 @@ const userValidationRules = [
  * Se não, passa para o próximo middleware.
  */
 const userValidationErrors = (req, res, next) => {
-    const erros = validationResult(req);
-    if (!erros.isEmpty()) {
-        return res.status(400).json({
-            status: "error",
-            message: "Dados inválidos.",
-            erros: erros.array(),
-        });
-    }
-    next();
+    const content = validationResult(req);
+  if (!content.isEmpty()) {
+    const erros = content.errors;
+    return res.status(400).json({
+      status: "error",
+      message: erros[0]?.msg || "Dados inválidos.",
+      erros: erros,
+    });
+  }
+  next();
 };
 
 module.exports = {

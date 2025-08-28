@@ -152,7 +152,7 @@ const criarConsultaProdutosPorEan = async (eans) => {
       `[Invoice] Erro ao consultar produtos por EANs:`,
       error.message
     );
-    throw new Error(`Erro ao consultar produtos: ${error.message}`);
+    throw new Error(`Erro ao consultar produtos`);
   }
 };
 
@@ -199,7 +199,7 @@ const getInfoInvoiceFromExternalApi = async (fiscalCode) => {
       error.message
     );
     throw new Error(
-      `Falha ao obter informações da nota fiscal: ${error.message}`
+      `Falha ao obter informações da nota fiscal`
     );
   }
 };
@@ -464,6 +464,7 @@ const addInvoiceWithTransaction = async (req, res, next) => {
       `SELECT * FROM clients WHERE token = $1`,
       [token]
     );
+    console.log('token', {token, rows});
     if (rows.length === 0) {
       throw new Error(`Cliente não encontrado.`);
     }
