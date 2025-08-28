@@ -16,6 +16,7 @@ const { createExportHandler } = require("../utils/exportHandlers"); // Importa a
 // Validações Específicas do Cliente
 const {
   clientValidationRules,
+  clientUpdateValidationRules,
   clientValidationErrors,
 } = require("../validators/clienteValidador");
 const { clientMaskInfo } = require("../utils/maskInfo");
@@ -236,6 +237,8 @@ router.put(
   "/web",
   authenticateToken,
   authorizeRoles("web"),
+  clientUpdateValidationRules,
+  clientValidationErrors,
   updatedClientWebByToken
 );
 
