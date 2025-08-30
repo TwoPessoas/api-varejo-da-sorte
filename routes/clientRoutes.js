@@ -205,10 +205,10 @@ const updatedClientWebByToken = async (req, res, next) => {
         message: `Cliente não encontrado.`,
       });
     }
-    
+
     const user = rows[0];
     const { birthday, cel, email, name } = req.body;
-    
+
     const request = await pool.query(
       "UPDATE clients SET is_pre_register=$1, birthday=$2, cel=$3, email=$4, name=$5 WHERE id=$6 RETURNING *",
       [false, birthday, cel, email ? email : user.email, name, user.id]
@@ -217,9 +217,9 @@ const updatedClientWebByToken = async (req, res, next) => {
     const clientUltaded = request.rows[0];
     if (clientUltaded.email && clientUltaded.welcome_email_sended_at === null) {
       // Tenta enviar um e-mail de boas vindas
-      welcomeEmail();
+      welcomeEmail(clientUltaded.id, clientUltaded.email, clientUltaded.name);
     }
-    
+
     var clientTO = clientMaskInfo(request.rows[0]);
     res.status(200).json(convertKeysToCamelCase(clientTO));
   } catch (error) {
@@ -230,16 +230,16 @@ const updatedClientWebByToken = async (req, res, next) => {
 const welcomeEmail = async (id, email, name) => {
   try {
     // Envio do email
-    await sendWelcomeEmail({email, name});
+    await sendWelcomeEmail({ email, name });
     await pool.query(
-            "UPDATE clients SET welcome_email_sended_at=now(), updated_at=now() WHERE id=$1",
-            [id]
-          );
-    console.log('Email enviado com sucesso!');
+      "UPDATE clients SET welcome_email_sended_at=now(), updated_at=now() WHERE id=$1",
+      [id]
+    );
+    console.log("Email enviado com sucesso!");
   } catch (error) {
-    console.error('Erro ao enviar o email:', error);
+    console.error("Erro ao enviar o email:", error);
   }
-}
+};
 
 router.get("/me", authenticateToken, authorizeRoles("web"), getMe);
 router.get(
