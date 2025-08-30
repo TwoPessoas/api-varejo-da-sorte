@@ -22,6 +22,7 @@ const {
   addInvoiceValidationRules,
 } = require("../validators/invoiceValidador");
 const { formatNumberWithZeros } = require("../utils/numberUtils");
+const { sendVoucherWinnerEmail } = require("../services/emailService");
 
 // --- Configurações Específicas da Entidade Fatura ---
 const tableName = "invoices";
@@ -504,15 +505,15 @@ const tryMyLuck = async (req, res, next) => {
     // 1. Identificar o cliente pelo token
     const token = req.user.userToken;
     const clientResult = await repository.query(
-      `SELECT id FROM clients WHERE token = $1`,
+      `SELECT * FROM clients WHERE token = $1`,
       [token]
     );
 
     if (clientResult.rows.length === 0) {
       throw new Error("Cliente não encontrado.");
     }
-    const clientId = clientResult.rows[0].id;
-
+    const client = clientResult.rows[0];
+    
     // 2.1. Verificar se o cliente tem oportunidades ativas e não utilizadas
     const opportunityResult = await repository.query(
       `SELECT go.id
@@ -521,7 +522,7 @@ const tryMyLuck = async (req, res, next) => {
        WHERE go.active = true AND go.used_at IS NULL AND i.client_id = $1
        ORDER BY go.created_at ASC
        LIMIT 1`,
-      [clientId]
+      [client.id]
     );
 
     if (opportunityResult.rows.length === 0) {
@@ -538,7 +539,7 @@ const tryMyLuck = async (req, res, next) => {
        JOIN game_opportunities go ON v.game_opportunity_id = go.id
        JOIN invoices i ON go.invoice_id = i.id
        WHERE i.client_id = $1`,
-      [clientId]
+      [client.id]
     );
 
     let alreadyWon = hasWonBeforeResult.rows.length > 0;
@@ -569,6 +570,10 @@ const tryMyLuck = async (req, res, next) => {
         giftMessage = "Parabéns você ganhou um voucher";
         winStatus = true;
         voucherCoupom = voucher.coupom;
+
+        //tenta enviar logo o email de vencedor para o cliente
+        voucherWinnerEmail(voucher.id, client.email, client.name, voucher.coupom);
+
       } else {
         // Não ganhou. Apenas atualiza a oportunidade
         giftMessage = "Não foi dessa vez";
@@ -584,6 +589,8 @@ const tryMyLuck = async (req, res, next) => {
 
     await repository.query("COMMIT");
 
+    
+
     return res
       .status(200)
       .json({ win: winStatus, gift: giftMessage, voucher: voucherCoupom });
@@ -594,6 +601,20 @@ const tryMyLuck = async (req, res, next) => {
     repository.release();
   }
 };
+
+const voucherWinnerEmail = async (id, email, name, coupom) => {
+  try {
+    // Envio do email
+    await sendVoucherWinnerEmail({email, name, coupom});
+    await pool.query(
+            "UPDATE vouchers SET email_sended_at=now(), updated_at=now() WHERE id=$1",
+            [id]
+          );
+    console.log('Email enviado com sucesso!');
+  } catch (error) {
+    console.error('Erro ao enviar o email:', error);
+  }
+}
 
 // --- Criação dos Handlers CRUD para Faturas (sem o create customizado) ---
 const invoiceCrud = createCrudHandlers({

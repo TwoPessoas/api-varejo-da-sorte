@@ -37,6 +37,16 @@ function prepareHtmlTemplate(templateName, replacements) {
   return html;
 }
 
+async function send(mailOptions) {
+  const info = await transporter.sendMail(mailOptions);
+  console.log(
+    `E-mail enviado com sucesso. Message ID: ${info.messageId}`
+  );
+
+  // Retorna o sucesso e o ID da mensagem para quem chamou a função
+  return { success: true, messageId: info.messageId };
+}
+
 /**
  * Envia o e-mail de autorização de segurança.
  * @param {object} data - Objeto contendo os dados do cliente.
@@ -65,13 +75,7 @@ async function sendSecurityEmail(data) {
       html: htmlContent,
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(
-      `E-mail de segurança enviado com sucesso para ${data.email}. Message ID: ${info.messageId}`
-    );
-
-    // Retorna o sucesso e o ID da mensagem para quem chamou a função
-    return { success: true, messageId: info.messageId };
+    return await send(mailOptions);
   } catch (error) {
     console.error(
       `Falha ao enviar e-mail de segurança para ${data.email}:`,
@@ -99,13 +103,7 @@ async function sendVoucherWinnerEmail(data) {
       html: htmlContent,
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(
-      `E-mail de vencedor do voucher enviado com sucesso para ${data.email}. Message ID: ${info.messageId}`
-    );
-
-    // Retorna o sucesso e o ID da mensagem para quem chamou a função
-    return { success: true, messageId: info.messageId };
+    return await send(mailOptions);
   } catch (error) {
     console.error(
       `Falha ao enviar e-mail de segurança para ${data.email}:`,
@@ -116,8 +114,101 @@ async function sendVoucherWinnerEmail(data) {
   }
 }
 
+async function sendAdjustmentVoucherEmail(data) {
+  console.log(
+    `Preparando e-mail de ajuste para o vencedor do voucher para: ${data.email}`
+  );
+
+  try {
+    // Prepara o conteúdo do e-mail usando o template
+    const htmlContent = prepareHtmlTemplate("adjustment_voucher_email.html", {
+      NAME: data.name,
+      COUPOM: data.coupom,
+    });
+
+    const mailOptions = {
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      to: data.email,
+      subject: "Retificação código premiado Atakarejo",
+      html: htmlContent,
+    };
+
+    return await send(mailOptions);
+  } catch (error) {
+    console.error(
+      `Falha ao enviar e-mail de segurança para ${data.email}:`,
+      error
+    );
+    // Lança o erro para que a camada que chamou (a rota) possa tratá-lo
+    throw new Error("Falha no serviço de envio de e-mail.");
+  }
+}
+
+async function sendDrawEmail(data) {
+  console.log(
+    `Preparando e-mail de ajuste vencedor do sorteio para: ${data.email}`
+  );
+
+  try {
+    // Prepara o conteúdo do e-mail usando o template
+    const htmlContent = prepareHtmlTemplate("draw_email.html", {
+      NAME: data.name,
+    });
+
+    const mailOptions = {
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      to: data.email,
+      subject: "Parabéns, você foi sorteado na promoção aniversário Atakarejo",
+      html: htmlContent,
+    };
+
+    return await send(mailOptions);
+  } catch (error) {
+    console.error(
+      `Falha ao enviar e-mail de segurança para ${data.email}:`,
+      error
+    );
+    // Lança o erro para que a camada que chamou (a rota) possa tratá-lo
+    throw new Error("Falha no serviço de envio de e-mail.");
+  }
+}
+
+async function sendWelcomeEmail(data) {
+  console.log(
+    `Preparando e-mail de Bem Vindo para: ${data.email}`, data
+  );
+
+  try {
+    // Prepara o conteúdo do e-mail usando o template
+    const htmlContent = prepareHtmlTemplate("welcome_email.html", {
+      NAME: data.name,
+    });
+
+    const mailOptions = {
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      to: data.email,
+      subject: "Bem vindo ao Aniversário Atakarejo",
+      html: htmlContent,
+    };
+
+    return await send(mailOptions);
+  } catch (error) {
+    console.error(
+      `Falha ao enviar e-mail de segurança para ${data.email}:`,
+      error
+    );
+    // Lança o erro para que a camada que chamou (a rota) possa tratá-lo
+    throw new Error("Falha no serviço de envio de e-mail.");
+  }
+}
+
+
+
 // Exportamos a função que queremos que seja pública (reutilizável)
 module.exports = {
   sendSecurityEmail,
   sendVoucherWinnerEmail,
+  sendAdjustmentVoucherEmail,
+  sendDrawEmail,
+  sendWelcomeEmail
 };
