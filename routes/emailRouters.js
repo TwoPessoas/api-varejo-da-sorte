@@ -8,6 +8,7 @@ const {
   authorizeRoles,
 } = require("../middleware/authMiddleware");
 const { sendWelcomeEmail, sendAdjustmentVoucherEmail, sendVoucherWinnerEmail, sendDrawEmail } = require("../services/emailService");
+const pool = require("../config/db");
 
 const welcomeEmail = async (req, res, next) => {
   try {
@@ -69,6 +70,54 @@ const drawEmail = async (req, res, next) => {
   }
 };
 
+const testeNow = async (req, res, next) => {
+  try {
+    const request = await pool.query("SELECT NOW()");
+
+    res.status(200).json({
+      status: "success",
+      message: request.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const testeVouchers = async (req, res, next) => {
+  try {
+    const request = await pool.query(
+      `SELECT * FROM vouchers
+      WHERE draw_date <= now()
+      ORDER BY draw_date ASC`);
+
+    res.status(200).json({
+      status: "success",
+      message: JSON.stringify(request.rows),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const testeVouchersV2 = async (req, res, next) => {
+  try {
+    const d = new Date();
+    d.setHours(d.getHours() - 3); // Ajusta para GMT-3 (horário de Brasília)
+    const request = await pool.query(
+      `SELECT * FROM vouchers
+      WHERE draw_date <= $1
+      ORDER BY draw_date ASC`, [d.toISOString()]);
+
+    res.status(200).json({
+      status: "success",
+      message: JSON.stringify(request.rows),
+      data: d.toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // --- Aplicação de Middlewares ---
 router.use(authenticateToken, authorizeRoles("admin"));
 
@@ -77,6 +126,10 @@ router.get("/welcome", welcomeEmail);
 router.get("/adjustment-voucher", adjustmentVoucherEmail);
 router.get("/voucher-winner", voucherWinnerEmail);
 router.get("/draw", drawEmail);
+
+router.get("/teste-now", testeNow);
+router.get("/teste-vouchers", testeVouchers);
+router.get("/teste-vouchers-v2", testeVouchersV2);
 drawEmail
 
 module.exports = router;
