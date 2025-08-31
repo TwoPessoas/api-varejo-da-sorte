@@ -105,8 +105,8 @@ const testeVouchersV2 = async (req, res, next) => {
     d.setHours(d.getHours() - 3); // Ajusta para GMT-3 (horário de Brasília)
     const request = await pool.query(
       `SELECT * FROM vouchers
-      WHERE draw_date <= $1
-      ORDER BY draw_date ASC`, [d.toISOString()]);
+      WHERE draw_date <= NOW() - interval '3 hours'
+      ORDER BY draw_date ASC`);
 
     res.status(200).json({
       status: "success",

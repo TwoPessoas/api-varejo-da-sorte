@@ -554,7 +554,7 @@ const tryMyLuck = async (req, res, next) => {
       // 2.2. Tenta encontrar e bloquear um voucher disponível para o sorteio
       const voucherResult = await repository.query(
         `SELECT id, coupom FROM vouchers
-           WHERE draw_date <= now() AND game_opportunity_id IS NULL
+           WHERE draw_date <= NOW() - interval '3 hours' AND game_opportunity_id IS NULL
            ORDER BY draw_date ASC
            LIMIT 1
            FOR UPDATE`
