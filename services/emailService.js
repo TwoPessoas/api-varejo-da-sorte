@@ -98,6 +98,7 @@ async function sendVoucherWinnerEmail(data) {
 
     const mailOptions = {
       from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      bcc: ['leo.pessoa@gmail.com','tiago.moura@f5ads.com.br','deborah.motta@atakarejo.com.br'],
       to: data.email,
       subject: "Código premiado Atakarejo",
       html: htmlContent,

@@ -59,7 +59,8 @@ function voucherMaskInfo(voucher) {
   const voucherMasked = { ...voucher };
 
   if (voucherMasked.name) {
-    const names = voucherMasked.name.split(" ");
+    const name = trim(voucherMasked.name);
+    const names = name.split(" ");
     if (names.length > 1) {
       // Máscara para nomes com mais de uma palavra
       voucherMasked.name =
