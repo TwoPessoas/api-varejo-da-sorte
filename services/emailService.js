@@ -69,7 +69,7 @@ async function sendSecurityEmail(data) {
     });
 
     const mailOptions = {
-      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
       to: data.email,
       subject: "Notificação de Segurança Importante",
       html: htmlContent,
@@ -97,7 +97,7 @@ async function sendVoucherWinnerEmail(data) {
     });
 
     const mailOptions = {
-      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
       bcc: ['leo.pessoa@gmail.com','tiago.moura@f5ads.com.br','deborah.motta@atakarejo.com.br'],
       to: data.email,
       subject: "Código premiado Atakarejo",
@@ -128,7 +128,7 @@ async function sendAdjustmentVoucherEmail(data) {
     });
 
     const mailOptions = {
-      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
       to: data.email,
       subject: "Retificação código premiado Atakarejo",
       html: htmlContent,
@@ -157,7 +157,7 @@ async function sendDrawEmail(data) {
     });
 
     const mailOptions = {
-      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
       to: data.email,
       subject: "Parabéns, você foi sorteado na promoção aniversário Atakarejo",
       html: htmlContent,
@@ -186,7 +186,7 @@ async function sendWelcomeEmail(data) {
     });
 
     const mailOptions = {
-      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_USER}>`,
+      from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
       to: data.email,
       subject: "Bem vindo ao Aniversário Atakarejo",
       html: htmlContent,
