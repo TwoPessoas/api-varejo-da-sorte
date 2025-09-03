@@ -465,7 +465,6 @@ const addInvoiceWithTransaction = async (req, res, next) => {
       `SELECT * FROM clients WHERE token = $1`,
       [token]
     );
-    console.log('token', {token, rows});
     if (rows.length === 0) {
       throw new Error(`Cliente não encontrado.`);
     }

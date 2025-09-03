@@ -214,11 +214,11 @@ const updatedClientWebByToken = async (req, res, next) => {
       [false, birthday, cel, email ? email : user.email, name, user.id]
     );
 
-    const clientUltaded = request.rows[0];
+    /*const clientUltaded = request.rows[0];
     if (clientUltaded.email && clientUltaded.welcome_email_sended_at === null) {
       // Tenta enviar um e-mail de boas vindas
       welcomeEmail(clientUltaded.id, clientUltaded.email, clientUltaded.name);
-    }
+    }*/
 
     var clientTO = clientMaskInfo(request.rows[0]);
     res.status(200).json(convertKeysToCamelCase(clientTO));

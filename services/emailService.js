@@ -116,9 +116,9 @@ async function sendVoucherWinnerEmail(data) {
 }
 
 async function sendAdjustmentVoucherEmail(data) {
-  console.log(
+  /*console.log(
     `Preparando e-mail de ajuste para o vencedor do voucher para: ${data.email}`
-  );
+  );*/
 
   try {
     // Prepara o conteúdo do e-mail usando o template
@@ -146,9 +146,9 @@ async function sendAdjustmentVoucherEmail(data) {
 }
 
 async function sendDrawEmail(data) {
-  console.log(
+  /*console.log(
     `Preparando e-mail de ajuste vencedor do sorteio para: ${data.email}`
-  );
+  );*/
 
   try {
     // Prepara o conteúdo do e-mail usando o template
@@ -175,9 +175,9 @@ async function sendDrawEmail(data) {
 }
 
 async function sendWelcomeEmail(data) {
-  console.log(
+  /*console.log(
     `Preparando e-mail de Bem Vindo para: ${data.email}`, data
-  );
+  );*/
 
   try {
     // Prepara o conteúdo do e-mail usando o template
