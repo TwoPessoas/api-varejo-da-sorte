@@ -82,7 +82,7 @@ const getAllDrawNumbers = async (req, res, next) => {
       JOIN clients c ON i.client_id = c.id
       ${whereClause} 
       ORDER BY ${orderByField} ${orderDirection} 
-      LIMIT ${nextParamIndex} OFFSET ${nextParamIndex + 1}`;
+      LIMIT $${nextParamIndex} OFFSET $${nextParamIndex + 1}`;
 
     params.push(limit, offset); // Adiciona limit e offset aos parâmetros da query
     const result = await pool.query(query, params);
