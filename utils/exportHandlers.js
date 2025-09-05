@@ -19,6 +19,7 @@ const createExportHandler = ({
   logActivity,
   columnsConfig,
   searchableFields,
+  getExportDataQuery, // Novo parâmetro para uma função de busca customizada
 }) => {
   return async (req, res, next) => {
     try {
@@ -32,9 +33,17 @@ const createExportHandler = ({
         enableDateFiltering: true, // Sempre habilitar filtragem por data para exportação
       });
 
-      const sql = `SELECT * FROM ${tableName} ${whereClause} ORDER BY id ASC`; // Ordenar por ID para consistência
-      const result = await pool.query(sql, params);
-      const dataToExport = result.rows;
+      let dataToExport;
+
+      // Se uma função de busca customizada for fornecida, use-a
+      if (getExportDataQuery) {
+        dataToExport = await getExportDataQuery({ whereClause, params });
+      } else {
+        // Caso contrário, use a query padrão
+        const sql = `SELECT * FROM ${tableName} ${whereClause} ORDER BY id ASC`;
+        const result = await pool.query(sql, params);
+        dataToExport = result.rows;
+      }
 
       await logActivity(
         req.user.id, // Supondo req.user.id disponível do middleware de autenticação

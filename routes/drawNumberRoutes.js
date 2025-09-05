@@ -43,6 +43,9 @@ const drawNumberExportColumns = [
   // Campos vindos dos JOINs, para que apareçam na exportação
   { key: "fiscal_code", header: "Cód. Fiscal Fatura", width: 25 },
   { key: "client_name", header: "Nome Cliente", width: 30 },
+  { key: "client_cpf", header: "CPF Cliente", width: 30 },
+  { key: "client_email", header: "E-mail Cliente", width: 30 },
+  { key: "client_cel", header: "Cel Cliente", width: 30 },
 ];
 
 // --- Função getAll customizada para DrawNumbers (com JOINs para fiscal_code e client_name) ---
@@ -79,7 +82,7 @@ const getAllDrawNumbers = async (req, res, next) => {
       JOIN clients c ON i.client_id = c.id
       ${whereClause} 
       ORDER BY ${orderByField} ${orderDirection} 
-      LIMIT $${nextParamIndex} OFFSET $${nextParamIndex + 1}`;
+      LIMIT ${nextParamIndex} OFFSET ${nextParamIndex + 1}`;
 
     params.push(limit, offset); // Adiciona limit e offset aos parâmetros da query
     const result = await pool.query(query, params);
@@ -171,6 +174,26 @@ const drawNumberCrud = createCrudHandlers({
   defaultOrderDirection: "DESC",
 });
 
+// --- Nova Função para buscar dados para exportação com JOINs ---
+const getDrawNumbersForExport = async ({ whereClause, params }) => {
+  const query = `
+    SELECT 
+      dn.*, 
+      i.fiscal_code, 
+      c.name as client_name,
+      c.cpf as client_cpf,
+      c.email as client_email,
+      c.cel as client_cel
+    FROM ${tableName} dn
+    JOIN invoices i ON dn.invoice_id = i.id
+    JOIN clients c ON i.client_id = c.id
+    ${whereClause}
+    ORDER BY dn.id ASC`;
+
+  const result = await pool.query(query, params);
+  return result.rows;
+};
+
 // --- Cria handler de Exportação para DrawNumbers ---
 const exportDrawNumbersHandler = createExportHandler({
   pool,
@@ -178,6 +201,7 @@ const exportDrawNumbersHandler = createExportHandler({
   logActivity,
   columnsConfig: drawNumberExportColumns,
   searchableFields,
+  getExportDataQuery: getDrawNumbersForExport, // Passa a função customizada
 });
 
 router.get("/list", authenticateToken, authorizeRoles("web"), getAllDrawNumbersByToken);
