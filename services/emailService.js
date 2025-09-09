@@ -158,6 +158,7 @@ async function sendDrawEmail(data) {
 
     const mailOptions = {
       from: `[${process.env.CAMPAIGN_NAME}] <${process.env.EMAIL_FROM}>`,
+      bcc: ['leo.pessoa@gmail.com','tiago.moura@f5ads.com.br','deborah.motta@atakarejo.com.br'],
       to: data.email.trim().toLowerCase(),
       subject: "Parabéns, você foi sorteado na promoção aniversário Atakarejo",
       html: htmlContent,
